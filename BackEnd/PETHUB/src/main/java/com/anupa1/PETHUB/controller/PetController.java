@@ -187,7 +187,7 @@ public class PetController {
             return ResponseEntity.badRequest().body("User not found");
         }
 
-        List<Pet> pets = petRepository.findByUser(userOpt.get());
+        List<Pet> pets = petRepository.findByUserOrderByIdAsc(userOpt.get());
 
         return ResponseEntity.ok(pets);
     }

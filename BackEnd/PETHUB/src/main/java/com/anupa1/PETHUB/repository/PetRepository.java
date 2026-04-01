@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface PetRepository extends JpaRepository<Pet, Long> {
     List<Pet> findByUser(User user); // only pets of this user
+
+    List<Pet> findByUserOrderByIdAsc(User user);
 }
