@@ -79,4 +79,34 @@ public class AuthController {
 
         return ResponseEntity.ok(response);
     }
+
+    // FORGOT PASSWORD
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> payload) {
+        Map<String, Object> response = new HashMap<>();
+
+        String email = payload.get("email");
+        String newPassword = payload.get("newPassword");
+
+        if (email == null || email.isBlank() || newPassword == null || newPassword.length() < 6) {
+            response.put("success", false);
+            response.put("message", "Invalid email or password (minimum 6 characters required)");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        Optional<User> existingUser = userRepository.findByEmail(email);
+        if (existingUser.isEmpty()) {
+            response.put("success", false);
+            response.put("message", "User not found!");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        User user = existingUser.get();
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        response.put("success", true);
+        response.put("message", "Password reset successful!");
+        return ResponseEntity.ok(response);
+    }
 }
