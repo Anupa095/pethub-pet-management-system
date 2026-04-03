@@ -14,6 +14,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.core.ParameterizedTypeReference;
 
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -33,13 +34,13 @@ public class PetController {
     private final PetRepository petRepository;
     private final UserRepository userRepository;
 
-    @Value("${file.upload-dir}")
-    private String uploadDir;
-
     public PetController(PetRepository petRepository, UserRepository userRepository) {
         this.petRepository = petRepository;
         this.userRepository = userRepository;
     }
+
+    @Value("${file.upload-dir}")
+    private String uploadDir;
 
     // =========================
     // Get All Pets
@@ -116,7 +117,12 @@ public class PetController {
 
                 String pythonApiUrl = "http://localhost:8000/verify-pet-image";
 
-                ResponseEntity<Map> pythonResponse = restTemplate.postForEntity(pythonApiUrl, requestEntity, Map.class);
+                    ResponseEntity<Map<String, Object>> pythonResponse = restTemplate.exchange(
+                            pythonApiUrl,
+                            HttpMethod.POST,
+                            requestEntity,
+                            new ParameterizedTypeReference<Map<String, Object>>() {}
+                    );
 
                 if (pythonResponse.getStatusCode().is2xxSuccessful()
                         && pythonResponse.getBody() != null) {
