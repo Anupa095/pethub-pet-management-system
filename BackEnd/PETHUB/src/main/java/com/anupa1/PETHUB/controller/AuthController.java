@@ -7,6 +7,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -108,5 +109,21 @@ public class AuthController {
         response.put("success", true);
         response.put("message", "Password reset successful!");
         return ResponseEntity.ok(response);
+    }
+
+    // ADMIN: GET ALL USERS (SAFE FIELDS ONLY)
+    @GetMapping("/users")
+    public ResponseEntity<?> getAllUsers() {
+        List<Map<String, Object>> users = userRepository.findAll().stream()
+                .map(user -> {
+                    Map<String, Object> safeUser = new HashMap<>();
+                    safeUser.put("id", user.getId());
+                    safeUser.put("name", user.getName() == null ? "" : user.getName());
+                    safeUser.put("email", user.getEmail() == null ? "" : user.getEmail());
+                    return safeUser;
+                })
+                .toList();
+
+        return ResponseEntity.ok(users);
     }
 }
