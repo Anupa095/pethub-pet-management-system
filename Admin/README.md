@@ -17,8 +17,8 @@ Open the local URL printed by Vite.
 
 ## Demo Login
 
-- Username: `admin`
-- Password: `admin123`
+- Username: `Anupa`
+- Password: `Anupa123`
 
 ## Build
 

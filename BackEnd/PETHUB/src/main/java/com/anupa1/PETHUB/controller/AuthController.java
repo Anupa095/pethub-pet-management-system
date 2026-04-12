@@ -1,6 +1,9 @@
 package com.anupa1.PETHUB.controller;
 
+import com.anupa1.PETHUB.model.AdminUser;
 import com.anupa1.PETHUB.model.User;
+import com.anupa1.PETHUB.repository.AdminUserRepository;
+import com.anupa1.PETHUB.repository.PetRepository;
 import com.anupa1.PETHUB.repository.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -16,13 +19,52 @@ import java.util.Optional;
 @CrossOrigin
 public class AuthController {
 
+    private final AdminUserRepository adminUserRepository;
     private final UserRepository userRepository;
+    private final PetRepository petRepository;
     private final BCryptPasswordEncoder passwordEncoder;
 
-    public AuthController(UserRepository userRepository,
+    public AuthController(AdminUserRepository adminUserRepository,
+                          UserRepository userRepository,
+                          PetRepository petRepository,
                           BCryptPasswordEncoder passwordEncoder) {
+        this.adminUserRepository = adminUserRepository;
         this.userRepository = userRepository;
+        this.petRepository = petRepository;
         this.passwordEncoder = passwordEncoder;
+    }
+
+    // ADMIN LOGIN (DB-BACKED)
+    @PostMapping("/admin/login")
+    public ResponseEntity<?> adminLogin(@RequestBody Map<String, String> payload) {
+        Map<String, Object> response = new HashMap<>();
+
+        String username = payload.getOrDefault("username", "").trim();
+        String password = payload.getOrDefault("password", "");
+
+        if (username.isBlank() || password.isBlank()) {
+            response.put("success", false);
+            response.put("message", "Username and password are required.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+        if (adminUser.isEmpty()) {
+            response.put("success", false);
+            response.put("message", "Invalid username or password.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        if (!passwordEncoder.matches(password, adminUser.get().getPassword())) {
+            response.put("success", false);
+            response.put("message", "Invalid username or password.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        response.put("success", true);
+        response.put("message", "Admin login successful!");
+        response.put("admin", Map.of("username", adminUser.get().getUsername()));
+        return ResponseEntity.ok(response);
     }
 
     // REGISTER
@@ -125,5 +167,75 @@ public class AuthController {
                 .toList();
 
         return ResponseEntity.ok(users);
+    }
+
+    // ADMIN: UPDATE USER (SAFE FIELDS ONLY)
+    @PutMapping("/users/{id}")
+    public ResponseEntity<?> updateUser(@PathVariable Long id,
+                                        @RequestBody Map<String, String> payload) {
+        Optional<User> userOpt = userRepository.findById(id);
+
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of(
+                    "success", false,
+                    "message", "User not found"
+            ));
+        }
+
+        String name = payload.getOrDefault("name", "").trim();
+        String email = payload.getOrDefault("email", "").trim();
+
+        if (name.isBlank() || email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Name and email are required"
+            ));
+        }
+
+        Optional<User> existingByEmail = userRepository.findByEmail(email);
+        if (existingByEmail.isPresent() && !existingByEmail.get().getId().equals(id)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Email already exists"
+            ));
+        }
+
+        User user = userOpt.get();
+        user.setName(name);
+        user.setEmail(email);
+        User savedUser = userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "User updated successfully",
+                "user", Map.of(
+                        "id", savedUser.getId(),
+                        "name", savedUser.getName() == null ? "" : savedUser.getName(),
+                        "email", savedUser.getEmail() == null ? "" : savedUser.getEmail()
+                )
+        ));
+    }
+
+    // ADMIN: DELETE USER (+ RELATED PET RECORDS)
+    @DeleteMapping("/users/{id}")
+    public ResponseEntity<?> deleteUser(@PathVariable Long id) {
+        Optional<User> userOpt = userRepository.findById(id);
+
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of(
+                    "success", false,
+                    "message", "User not found"
+            ));
+        }
+
+        User user = userOpt.get();
+
+        petRepository.deleteAll(petRepository.findByUser(user));
+        userRepository.delete(user);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "User deleted successfully"
+        ));
     }
 }

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ username: "", password: "" });
@@ -11,16 +13,30 @@ export default function LoginPage() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    setError("");
 
-    if (form.username === "admin" && form.password === "admin123") {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/admin/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: form.username,
+          password: form.password,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.message || "Invalid username or password.");
+      }
+
       localStorage.setItem("pethub_admin_logged_in", "true");
       navigate("/dashboard");
-      return;
+    } catch (e) {
+      setError(e.message || "Invalid username or password.");
     }
-
-    setError("Invalid username or password.");
   };
 
   return (
@@ -64,7 +80,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="hint">Demo credentials: admin / admin123</p>
       </section>
     </main>
   );

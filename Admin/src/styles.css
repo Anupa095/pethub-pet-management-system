@@ -437,6 +437,47 @@ h1, h2, h3, h4, h5, h6, p { margin: 0; }
   letter-spacing: 0.04em;
 }
 
+.table-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-small {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.btn-danger {
+  border: 1px solid rgba(187, 46, 46, 0.35);
+  background: rgba(187, 46, 46, 0.14);
+  color: #8b1f1f;
+  border-radius: 12px;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.btn-danger:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.98);
+}
+
+.btn-danger:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.action-panel {
+  gap: 14px;
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 /* ════════════════════════════════════
    ANIMATION
 ════════════════════════════════════ */
@@ -476,6 +517,10 @@ h1, h2, h3, h4, h5, h6, p { margin: 0; }
   .row-actions button { flex: 1; }
 
   .chart-row { grid-template-columns: 72px 1fr 28px; }
+
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===================================
