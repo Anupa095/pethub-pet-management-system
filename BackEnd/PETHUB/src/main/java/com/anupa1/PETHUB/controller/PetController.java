@@ -2,8 +2,11 @@ package com.anupa1.PETHUB.controller;
 
 import com.anupa1.PETHUB.model.Pet;
 import com.anupa1.PETHUB.model.User;
+import com.anupa1.PETHUB.model.MatchStatus;
+import com.anupa1.PETHUB.model.BreedingMatchRequest;
 import com.anupa1.PETHUB.repository.PetRepository;
 import com.anupa1.PETHUB.repository.UserRepository;
+import com.anupa1.PETHUB.repository.BreedingMatchRequestRepository;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -33,10 +36,12 @@ public class PetController {
 
     private final PetRepository petRepository;
     private final UserRepository userRepository;
+    private final BreedingMatchRequestRepository breedingMatchRequestRepository;
 
-    public PetController(PetRepository petRepository, UserRepository userRepository) {
+    public PetController(PetRepository petRepository, UserRepository userRepository, BreedingMatchRequestRepository breedingMatchRequestRepository) {
         this.petRepository = petRepository;
         this.userRepository = userRepository;
+        this.breedingMatchRequestRepository = breedingMatchRequestRepository;
     }
 
     @Value("${file.upload-dir}")
@@ -215,25 +220,41 @@ public class PetController {
 
         try {
 
-            // Delete image file
-            if (pet.getImageUrl() != null) {
+            // 1. Delete all breeding match requests that reference this pet (regardless of status)
+            List<BreedingMatchRequest> allMatchRequests = breedingMatchRequestRepository
+                    .findByStatusAndPet(MatchStatus.PENDING, pet);
+            if (!allMatchRequests.isEmpty()) {
+                breedingMatchRequestRepository.deleteAll(allMatchRequests);
+            }
 
+            List<BreedingMatchRequest> confirmedMatches = breedingMatchRequestRepository
+                    .findByStatusAndPet(MatchStatus.CONFIRMED, pet);
+            if (!confirmedMatches.isEmpty()) {
+                breedingMatchRequestRepository.deleteAll(confirmedMatches);
+            }
+
+            List<BreedingMatchRequest> rejectedMatches = breedingMatchRequestRepository
+                    .findByStatusAndPet(MatchStatus.REJECTED, pet);
+            if (!rejectedMatches.isEmpty()) {
+                breedingMatchRequestRepository.deleteAll(rejectedMatches);
+            }
+
+            // 2. Delete image file
+            if (pet.getImageUrl() != null && !pet.getImageUrl().isEmpty()) {
                 String fileName = pet.getImageUrl().replace("/uploads/", "");
                 Path filePath = Paths.get(uploadDir, fileName);
-
                 Files.deleteIfExists(filePath);
             }
 
+            // 3. Finally delete the pet
             petRepository.deleteById(id);
 
             return ResponseEntity.ok("Pet deleted successfully");
 
         } catch (Exception e) {
-
             e.printStackTrace();
-
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Failed to delete pet");
+                    .body("Failed to delete pet: " + e.getMessage());
         }
     }
 
