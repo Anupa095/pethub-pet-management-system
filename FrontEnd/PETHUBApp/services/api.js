@@ -2,7 +2,7 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 
 // Change this value only when your local backend IP changes.
-export const LOCAL_IP = '192.168.43.197:8080';
+export const LOCAL_IP = '192.168.43.6:8080';
 export const LOCAL_HOST = LOCAL_IP.split(':')[0];
 
 export const API_ROOT = Platform.select({
