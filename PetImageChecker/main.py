@@ -1,11 +1,11 @@
-import io
 import logging
 from contextlib import asynccontextmanager
 
+import cv2
+import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
-from ultralytics import YOLO
-from PIL import Image
+from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
 
 # Setup simple logging
 logging.basicConfig(level=logging.INFO)
@@ -14,25 +14,103 @@ logger = logging.getLogger(__name__)
 # Global model variable
 model = None
 
-# COCO dataset class indices
-# 15: cat
-# 16: dog
-ALLOWED_CLASSES = [15, 16]
+BREEDS = {
+    "Dog": [
+        "Local",
+        "German Shepherd",
+        "Retriever",
+        "Rottweiler",
+        "Doberman Pinscher",
+        "Pomeranian",
+        "Shih Tzu",
+        "Beagle",
+    ],
+    "Cat": [
+        "Local Cats",
+        "Persian Cat",
+        "Siamese Cat",
+        "British Shorthair",
+        "Bengal Cat",
+    ],
+}
+
+BREED_ALIASES = {
+    "Dog": {
+        "Local": ["dog", "mixed breed", "mutt", "mongrel"],
+        "German Shepherd": ["german shepherd"],
+        "Retriever": ["retriever", "golden retriever", "labrador retriever"],
+        "Rottweiler": ["rottweiler"],
+        "Doberman Pinscher": ["doberman", "doberman pinscher"],
+        "Pomeranian": ["pomeranian"],
+        "Shih Tzu": ["shih tzu"],
+        "Beagle": ["beagle"],
+    },
+    "Cat": {
+        "Local Cats": ["cat", "tabby", "tiger cat", "egyptian cat", "domestic cat"],
+        "Persian Cat": ["persian cat"],
+        "Siamese Cat": ["siamese cat"],
+        "British Shorthair": ["british shorthair"],
+        "Bengal Cat": ["bengal cat"],
+    },
+}
+
+PET_TYPE_KEYWORDS = {
+    "Dog": ["dog", "retriever", "shepherd", "hound", "terrier", "pug", "poodle", "beagle", "rottweiler", "doberman", "pomeranian", "shih tzu", "husky"],
+    "Cat": ["cat", "tabby", "tiger cat", "persian cat", "siamese cat", "british shorthair", "bengal cat"],
+}
+
+
+def _normalize_label(label: str) -> str:
+    return label.lower().replace("_", " ").strip()
+
+
+def _detect_pet_type(predictions):
+    for _, label, _ in predictions:
+        normalized = _normalize_label(label)
+        for pet_type, keywords in PET_TYPE_KEYWORDS.items():
+            if any(keyword in normalized for keyword in keywords):
+                return pet_type
+    return None
+
+
+def _suggest_breed(pet_type: str, predictions):
+    breed_aliases = BREED_ALIASES[pet_type]
+
+    for _, label, _ in predictions:
+        normalized = _normalize_label(label)
+        for breed_name, aliases in breed_aliases.items():
+            if any(alias in normalized for alias in aliases):
+                return breed_name
+
+    return BREEDS[pet_type][0]
+
+
+def _prepare_image(contents: bytes) -> np.ndarray:
+    image_array = np.frombuffer(contents, dtype=np.uint8)
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+    if image is None:
+        raise HTTPException(status_code=400, detail="Unable to read the uploaded image.")
+
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = cv2.resize(image, (224, 224))
+    image = preprocess_input(image.astype(np.float32))
+    image = np.expand_dims(image, axis=0)
+    return image
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model
-    logger.info("Loading YOLOv8 model...")
-    # This will download yolov8n.pt on the first run if it doesn't exist
-    model = YOLO("yolov8n.pt")
-    logger.info("YOLOv8 model loaded successfully.")
+    logger.info("Loading MobileNetV2 model...")
+    model = MobileNetV2(weights="imagenet")
+    logger.info("MobileNetV2 model loaded successfully.")
     yield
     # Clean up if needed
     model = None
 
 app = FastAPI(
     title="Pet Image Verification API",
-    description="An API to verify if an uploaded image contains a dog or a cat using YOLOv8.",
+    description="An API to detect whether an uploaded image is a dog or cat and suggest a likely breed.",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -40,45 +118,55 @@ app = FastAPI(
 @app.post("/verify-pet-image")
 async def verify_pet_image(file: UploadFile = File(...)):
     """
-    Upload an image file and check if a cat or dog is detected.
-    Returns {"is_valid": bool, "message": str}
+    Upload an image file and detect whether it is a dog or a cat.
+    Returns a pet type and a best-effort breed suggestion.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File provided is not an image.")
 
     try:
-        # Read the file from the upload
         contents = await file.read()
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
-        
-        # Run inference using YOLOv8
+
         global model
         if model is None:
             raise HTTPException(status_code=500, detail="Model is not loaded.")
-            
-        results = model.predict(source=image, conf=0.5, save=False)
-        
-        # Check detected classes
-        detected_classes = []
-        for result in results:
-            # result.boxes.cls contains the detected class indices
-            if result.boxes is not None and result.boxes.cls is not None:
-                classes = result.boxes.cls.cpu().numpy().tolist()
-                detected_classes.extend([int(c) for c in classes])
-        
-        # Determine if any allowed class (cat/dog) is found
-        has_pet = any(cls in ALLOWED_CLASSES for cls in detected_classes)
-        
-        if has_pet:
-            return JSONResponse({
-                "is_valid": True,
-                "message": "Valid pet photo. Cat or dog detected."
-            })
-        else:
+
+        image = _prepare_image(contents)
+        predictions = model.predict(image, verbose=0)
+        decoded_predictions = decode_predictions(predictions, top=5)[0]
+        top_predictions = [
+            (class_id, label, float(score))
+            for class_id, label, score in decoded_predictions
+        ]
+
+        pet_type = _detect_pet_type(top_predictions)
+
+        if pet_type is None:
             return JSONResponse({
                 "is_valid": False,
-                "message": "Invalid photo. No cat or dog detected."
+                "pet_type": None,
+                "breed": None,
+                "breed_options": [],
+                "predictions": [
+                    {"label": label, "confidence": round(score * 100, 2)}
+                    for _, label, score in top_predictions
+                ],
+                "message": "No cat or dog detected.",
             })
+
+        breed = _suggest_breed(pet_type, top_predictions)
+
+        return JSONResponse({
+            "is_valid": True,
+            "pet_type": pet_type,
+            "breed": breed,
+            "breed_options": BREEDS[pet_type],
+            "predictions": [
+                {"label": label, "confidence": round(score * 100, 2)}
+                for _, label, score in top_predictions
+            ],
+            "message": f"{pet_type} detected. Suggested breed: {breed}.",
+        })
 
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
