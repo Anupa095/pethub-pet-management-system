@@ -23,6 +23,7 @@ const BREEDS = {
   Dog: [
     'Local',
     'Retriever',
+    'Boxer',
     'German Shepherd',
     'Golden Retriever',
     'Rottweiler',
@@ -30,6 +31,7 @@ const BREEDS = {
     'Pomeranian',
     'Shih Tzu',
     'Beagle',
+    'Other',
   ],
   Cat: [
     'Local Cats',
@@ -37,6 +39,7 @@ const BREEDS = {
     'Siamese Cat',
     'British Shorthair',
     'Bengal Cat',
+    'Other',
   ],
 };
 
@@ -46,8 +49,13 @@ const GENDERS = ['Male', 'Female'];
 function StyledDropdown({ placeholder, options, value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
 
-  const selected = options.find(o => (o.value ?? o) === value);
-  const displayLabel = selected ? (selected.label ?? selected) : null;
+  // Array එක ඇතුළේ object එකක්ද නැත්නම් string එකක්ද කියලා check කරලා value එක ගන්නවා
+  const selected = options.find(o => {
+    const optVal = (typeof o === 'object' && o !== null) ? o.value : o;
+    return optVal === value;
+  });
+  
+  const displayLabel = selected ? ((typeof selected === 'object' && selected !== null) ? selected.label : selected) : null;
 
   return (
     <View style={{ zIndex: open ? 999 : 1, marginBottom: 14 }}>
@@ -73,8 +81,8 @@ function StyledDropdown({ placeholder, options, value, onChange, disabled }) {
       {open && (
         <View style={dd.listContainer}>
           {options.map((opt, idx) => {
-            const val = opt.value ?? opt;
-            const label = opt.label ?? opt;
+            const val = (typeof opt === 'object' && opt !== null) ? opt.value : opt;
+            const label = (typeof opt === 'object' && opt !== null) ? opt.label : opt;
             const isSelected = val === value;
             const isLast = idx === options.length - 1;
             return (
@@ -179,6 +187,10 @@ export default function HomeScreen() {
   const [age, setAge] = useState('');
   const [imageUri, setImageUri] = useState(null);
   const [breedOptions, setBreedOptions] = useState([]);
+  
+  // Custom breed එක manually type කරන්න වෙනම state
+  const [customBreedText, setCustomBreedText] = useState('');
+  const [isCustomBreedActive, setIsCustomBreedActive] = useState(false);
 
   useEffect(() => { fetchPets(); }, []);
 
@@ -210,6 +222,8 @@ export default function HomeScreen() {
       setType('');
       setBreed('');
       setBreedOptions([]);
+      setIsCustomBreedActive(false);
+      setCustomBreedText('');
       Alert.alert(
         'Image not recognized',
         verification?.message || 'Please choose a clear dog or cat image.'
@@ -217,25 +231,90 @@ export default function HomeScreen() {
       return;
     }
 
-    const detectedType = verification.pet_type || '';
-    const detectedBreed = verification.breed || '';
+    const detectedType = verification.pet_type || ''; 
+    const detectedBreed = verification.breed || '';    
+    
     setType(detectedType);
-    setBreedOptions(Array.isArray(verification.breed_options) ? verification.breed_options : (detectedType ? BREEDS[detectedType] : []));
-    setBreed(detectedBreed);
+
+    // දැනට තියෙන base breeds list එක ගන්නවා (Other එක නැතුව)
+    const baseOptions = detectedType ? BREEDS[detectedType].filter(b => b !== 'Other') : [];
+    
+    let finalBreed = '';
+    let finalOptions = [];
+
+    if (detectedBreed) {
+      // අපේ list එකේ තියෙන එකකට match වෙනවද බලනවා
+      const matchedBreed = baseOptions.find(
+        b => b.toLowerCase() === detectedBreed.toLowerCase()
+      );
+
+      if (matchedBreed) {
+        // ලිස්ට් එකේ තියෙනවා නම් ඒක කෙලින්ම select කරනවා
+        finalBreed = matchedBreed;
+        finalOptions = [...BREEDS[detectedType]]; 
+        setIsCustomBreedActive(false);
+        setCustomBreedText('');
+      } else {
+        // ලිස්ට් එකේ නැති breed එකක් නම් Other තෝරලා text field එක prefill කරනවා
+        finalBreed = 'Other';
+        finalOptions = [...BREEDS[detectedType]];
+        setIsCustomBreedActive(true);
+        setCustomBreedText(detectedBreed);
+      }
+    } else {
+      // Breed එකක් අහුවුනේ නැත්නම් Local කියලා ගන්නවා
+      finalBreed = detectedType === 'Dog' ? 'Local' : 'Local Cats';
+      finalOptions = [...BREEDS[detectedType]];
+      setIsCustomBreedActive(false);
+      setCustomBreedText('');
+    }
+
+    setBreedOptions(finalOptions);
+    setBreed(finalBreed);
   };
 
   const handleTypeChange = (val) => {
     setType(val);
     setBreed('');
-    setBreedOptions(val ? BREEDS[val] : []);
+    setBreedOptions(val ? [...BREEDS[val]] : []);
+    setIsCustomBreedActive(false);
+    setCustomBreedText('');
+  };
+
+  const handleBreedChange = (val) => {
+    setBreed(val);
+    
+    // User manually dropdown එකෙන් "Other" තෝරුවොත් විතරක් box එක පෙන්වනවා
+    if (val === 'Other') {
+      setIsCustomBreedActive(true);
+      setCustomBreedText('');
+    } else if (val.startsWith('Other (')) {
+      setIsCustomBreedActive(false); // AI එකෙන් ආපු එකක් නම් input box එක පෙන්වන්න ඕනේ නැහැ
+      const extracted = val.replace('Other (', '').replace(')', '');
+      setCustomBreedText(extracted);
+    } else {
+      setIsCustomBreedActive(false);
+      setCustomBreedText('');
+    }
   };
 
   const handleAddPet = async () => {
-    if (!name || !type || !breed || !gender || !age) {
+    let finalBreedValue = breed;
+
+    // ඉදිරියෙන්ම තියෙන "Other" option එකක් තියෙද්දී user අලුතින් breed එකක් type කරලා තිබුණොත්
+    if (isCustomBreedActive && customBreedText.trim()) {
+      finalBreedValue = `Other (${customBreedText.trim()})`;
+    } else if (isCustomBreedActive && !customBreedText.trim()) {
+      Alert.alert('Incomplete', 'Please specify the breed name in the text field.');
+      return;
+    }
+
+    if (!name || !type || !finalBreedValue || !gender || !age) {
       Alert.alert('Incomplete', 'Please fill in all fields before adding.');
       return;
     }
-    const newPet = { name, type, breed, gender, age: parseInt(age) };
+
+    const newPet = { name, type, breed: finalBreedValue, gender, age: parseInt(age) };
     const result = await addPet(newPet, user.email, imageUri);
 
     if (result && result.id) {
@@ -256,6 +335,8 @@ export default function HomeScreen() {
     setAge('');
     setImageUri(null);
     setBreedOptions([]);
+    setIsCustomBreedActive(false);
+    setCustomBreedText('');
   };
 
   const handleDeletePet = async (id) => {
@@ -387,9 +468,23 @@ export default function HomeScreen() {
                 placeholder={type ? 'Select breed' : 'Select type first'}
                 options={type ? (breedOptions.length ? breedOptions : BREEDS[type]) : []}
                 value={breed}
-                onChange={setBreed}
+                onChange={handleBreedChange}
                 disabled={!type}
               />
+
+              {/* Custom Breed Input - User "Other" manually select කලොත් විතරක් පේනවා */}
+              {isCustomBreedActive && (
+                <View>
+                  <FieldLabel text="Specify Breed Name" />
+                  <TextInput
+                    placeholder="e.g. Boxer, Husky, Persian White..."
+                    placeholderTextColor="#9ca3af"
+                    value={customBreedText}
+                    onChangeText={setCustomBreedText}
+                    style={styles.textInput}
+                  />
+                </View>
+              )}
 
               {/* Gender */}
               <FieldLabel text="Gender" />

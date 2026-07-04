@@ -9,12 +9,24 @@ import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import HomeScreen from './screens/HomeScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import PetDetailsScreen from './screens/PetDetailsScreen';
+import AIchat from './screens/AIchat';
+import MealPlane from './screens/MealPlane';
+import Vaccine from './screens/Vaccine';
+import NearBy from './screens/NearBy';
 
 const AuthStack = createNativeStackNavigator();
 const MainStack = createNativeStackNavigator();
 
 function MainNavigator() {
-  const { handleLogout } = useAuth();
+  const { handleLogout, user } = useAuth();
+
+  // වෙලාව අනුව සුබපැතුම තීරණය කරන function එක
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  };
 
   return (
     <MainStack.Navigator>
@@ -22,40 +34,32 @@ function MainNavigator() {
         name="Home"
         component={HomeScreen}
         options={{
-          title: 'PetHub Home',
+          headerTitleAlign: 'left',
+          headerTitle: () => (
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: 'bold' }}>
+                {user?.name ? `${getGreeting()}, ${user.name}` : `${getGreeting()}`}
+              </Text>
+            </View>
+          ),
           headerRight: () => (
             <TouchableOpacity onPress={handleLogout}>
-              <Text style={{ color: 'red', marginRight: 10 }}>Logout</Text>
+              <Text style={{ color: 'red', marginRight: 10, fontWeight: '600' }}>Logout</Text>
             </TouchableOpacity>
           ),
         }}
       />
 
-      <MainStack.Screen
-        name="PetDetails"
-        component={PetDetailsScreen}
-        options={({ route }) => {
-          const ownerName = route.params?.pet?.user?.name;
-
-          const getGreeting = () => {
-            const hour = new Date().getHours();
-            if (hour < 12) return 'Good Morning';
-            if (hour < 17) return 'Good Afternoon';
-            return 'Good Evening';
-          };
-
-          return {
-            headerTitleAlign: 'center',
-            headerTitle: () => (
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ fontSize: 16, fontWeight: 'bold' }}>
-                  {ownerName ? `${getGreeting()}, ${ownerName}` : 'Hello'}
-                </Text>
-              </View>
-            ),
-          };
-        }}
+      <MainStack.Screen 
+        name="PetDetails" 
+        component={PetDetailsScreen} 
+        options={{ title: 'Pet Details' }} 
       />
+      
+      <MainStack.Screen name="AIChat" component={AIchat} options={{ title: 'AI Chat' }} />
+      <MainStack.Screen name="MealPlane" component={MealPlane} options={{ title: 'Meal Plan' }} />
+      <MainStack.Screen name="Vaccine" component={Vaccine} options={{ title: 'Vaccine' }} />
+      <MainStack.Screen name="Nearby" component={NearBy} options={{ title: 'Nearby' }} />
     </MainStack.Navigator>
   );
 }

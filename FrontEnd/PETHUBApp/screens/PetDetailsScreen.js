@@ -5,7 +5,6 @@ import {
     ActivityIndicator, Alert, StatusBar,
     SafeAreaView,
 } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { getAllPets, getMyPets } from '../services/petApi';
@@ -18,20 +17,9 @@ import {
     rejectMatchRequest,
     removeMatch,
 } from '../services/matchApi';
+import BottomNavBar from './BottomNavBar';
 
 export default function PetDetailsScreen() {
-
-    const NAV_COLORS = {
-        Home: '#fbfbfb',
-        Tracking: '#edf4f1',
-        Care: '#060000',
-        Social: '#000207',
-    };
-
-    const NAV_TEXT_COLORS = {
-        active: '#ffffff',
-        inactive: '#F2ECE5',
-    };
 
     const [pets, setPets] = useState([]);
     const [myPets, setMyPets] = useState([]);
@@ -221,39 +209,6 @@ export default function PetDetailsScreen() {
             ]
         );
     };
-
-    const handleBottomNavPress = (tab) => {
-        if (tab === 'Home') {
-            navigation.navigate('Home');
-            return;
-        }
-
-        Alert.alert(`${tab} screen coming soon`);
-    };
-
-    const renderBottomNavItem = (label, icon, active) => (
-        <TouchableOpacity
-            key={label}
-            style={styles.bottomNavItem}
-            activeOpacity={0.8}
-            onPress={() => handleBottomNavPress(label)}
-        >
-            <Ionicons
-                name={icon}
-                size={27}
-                color={NAV_COLORS[label]}
-            />
-            <Text
-                style={[
-                    styles.bottomNavLabel,
-                    { color: active ? NAV_TEXT_COLORS.active : NAV_TEXT_COLORS.inactive },
-                    active && styles.bottomNavLabelActive,
-                ]}
-            >
-                {label}
-            </Text>
-        </TouchableOpacity>
-    );
 
     // ─── RENDER: My Pet Picker ───────────────────────────────────────────────
     
@@ -524,13 +479,7 @@ export default function PetDetailsScreen() {
                 style={{ backgroundColor: COLORS.bg }}
             />
 
-            <View style={styles.bottomNavBar}>
-    {renderBottomNavItem('Home', 'home-outline', false)}
-    {renderBottomNavItem('AI-chat', 'chatbubble-ellipses-outline', false)}
-    {renderBottomNavItem('Upload', 'cloud-upload-outline', false)}
-    {renderBottomNavItem('Nearby', 'location-outline', false)}
-    {renderBottomNavItem('Meal Plan', 'restaurant-outline', true)}
-</View>
+            <BottomNavBar />
         </SafeAreaView>
     );
 }
@@ -819,42 +768,4 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: 'rgba(194,96,63,0.5)',
     },
     removeBtnText: { color: '#FFBFAA', fontWeight: '700', fontSize: 13 },
-
-    // ── Bottom Navbar ──
-    bottomNavBar: {
-        position: 'absolute',
-        left: 10,
-        right: 10,
-        bottom: 10,
-        height: 70,
-        borderRadius: 25,
-        backgroundColor: '#787878',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-around',
-        borderWidth: 2.5,
-        borderColor: '#8f8d8d',
-        shadowColor: '#000',
-        shadowOpacity: 0.12,
-        shadowRadius: 10,
-        shadowOffset: { width: 2, height: 4 },
-        elevation: 8,
-    },
-    bottomNavItem: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    bottomNavLabel: {
-        marginTop: 4,
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#8F8A84',
-    },
-    bottomNavLabelActive: {
-        fontWeight: '800',
-        textShadowColor: 'rgba(0,0,0,0.12)',
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 1,
-    },
 });
