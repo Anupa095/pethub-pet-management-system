@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
@@ -16,14 +16,63 @@ const NAV_TEXT_COLORS = {
     inactive: '#F2ECE5',
 };
 
-// route.name eken navbar label ekata map karana object eka
-// oyage navigator eke thiyena real screen names dala meka update karanna
 const SCREEN_TO_NAV_LABEL = {
     PetDetails: 'Breeding',
     AIChat: 'AI-chat',
     MealPlane: 'Meal Plan',
     Vaccine: 'Vaccine',
     Nearby: 'Nearby',
+};
+
+// 🌟 Icon එක ලස්සනට බවුන්ස් වෙන්න හදපු ඇනිමේටඩ් කම්පෝනන්ට් එක
+const AnimatedTabItem = ({ label, icon, active, onPress }) => {
+    // scaleAnim එක default 1 තියෙනවා
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    // Active වෙනකොට ස්ප්‍රින්ග් එකක් වගේ බවුන්ස් කරවන ඉෆෙක්ට් එක
+    useEffect(() => {
+        if (active) {
+            Animated.spring(scaleAnim, {
+                toValue: 1.2, // Icon එක 20%ක් ලොකු වෙනවා
+                friction: 4,  // බවුන්ස් වෙන ගතිය (අඩු වන තරමට බවුන්ස් එක වැඩි වේ)
+                tension: 40,  // වේගය
+                useNativeDriver: true,
+            }).start();
+        } else {
+            Animated.timing(scaleAnim, {
+                toValue: 1, // සාමාන්‍ය ප්‍රමාණයට එනවා
+                duration: 150,
+                useNativeDriver: true,
+            }).start();
+        }
+    }, [active]);
+
+    return (
+        <TouchableOpacity
+            style={styles.bottomNavItem}
+            activeOpacity={0.9}
+            onPress={onPress}
+        >
+            {/* 🌟 Animated.View එකෙන් අයිකොන් එක විතරක් ඇනිමේට් කරනවා */}
+            <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                <Ionicons
+                    name={icon}
+                    size={26}
+                    color={active ? NAV_TEXT_COLORS.active : NAV_COLORS[label]}
+                />
+            </Animated.View>
+            
+            <Text
+                style={[
+                    styles.bottomNavLabel,
+                    { color: active ? NAV_TEXT_COLORS.active : NAV_TEXT_COLORS.inactive },
+                    active && styles.bottomNavLabelActive,
+                ]}
+            >
+                {label}
+            </Text>
+        </TouchableOpacity>
+    );
 };
 
 export default function BottomNavBar() {
@@ -33,62 +82,20 @@ export default function BottomNavBar() {
     const activeLabel = SCREEN_TO_NAV_LABEL[route?.name] || 'Breeding';
 
     const handlePress = (tab) => {
-        if (tab === 'Breeding') {
-            navigation.navigate('PetDetails');
-            return;
-        }
-        if (tab === 'AI-chat') {
-            navigation.navigate('AIChat');
-            return;
-        }
-        if (tab === 'Vaccine') {
-            navigation.navigate('Vaccine');
-            return;
-        }
-        if (tab === 'Meal Plan') {
-            navigation.navigate('MealPlane');
-            return;
-        }
-        if (tab === 'Nearby') {
-            navigation.navigate('Nearby');
-            return;
-        }
-    };
-
-    const renderItem = (label, icon) => {
-        const active = activeLabel === label;
-        return (
-            <TouchableOpacity
-                key={label}
-                style={styles.bottomNavItem}
-                activeOpacity={0.8}
-                onPress={() => handlePress(label)}
-            >
-                <Ionicons
-                    name={icon}
-                    size={27}
-                    color={active ? NAV_TEXT_COLORS.active : NAV_COLORS[label]}
-                />
-                <Text
-                    style={[
-                        styles.bottomNavLabel,
-                        { color: active ? NAV_TEXT_COLORS.active : NAV_TEXT_COLORS.inactive },
-                        active && styles.bottomNavLabelActive,
-                    ]}
-                >
-                    {label}
-                </Text>
-            </TouchableOpacity>
-        );
+        if (tab === 'Breeding') return navigation.navigate('PetDetails');
+        if (tab === 'AI-chat') return navigation.navigate('AIChat');
+        if (tab === 'Vaccine') return navigation.navigate('Vaccine');
+        if (tab === 'Meal Plan') return navigation.navigate('MealPlane');
+        if (tab === 'Nearby') return navigation.navigate('Nearby');
     };
 
     return (
         <View style={styles.bottomNavBar}>
-            {renderItem('Breeding', 'heart-outline')}
-            {renderItem('AI-chat', 'chatbubble-ellipses-outline')}
-            {renderItem('Meal Plan', 'restaurant-outline')}
-            {renderItem('Vaccine', 'medkit-outline')}
-            {renderItem('Nearby', 'location-outline')}
+            <AnimatedTabItem label="Breeding" icon="heart-outline" active={activeLabel === 'Breeding'} onPress={() => handlePress('Breeding')} />
+            <AnimatedTabItem label="AI-chat" icon="chatbubble-ellipses-outline" active={activeLabel === 'AI-chat'} onPress={() => handlePress('AI-chat')} />
+            <AnimatedTabItem label="Meal Plan" icon="restaurant-outline" active={activeLabel === 'Meal Plan'} onPress={() => handlePress('Meal Plan')} />
+            <AnimatedTabItem label="Vaccine" icon="medkit-outline" active={activeLabel === 'Vaccine'} onPress={() => handlePress('Vaccine')} />
+            <AnimatedTabItem label="Nearby" icon="location-outline" active={activeLabel === 'Nearby'} onPress={() => handlePress('Nearby')} />
         </View>
     );
 }
@@ -96,38 +103,36 @@ export default function BottomNavBar() {
 const styles = StyleSheet.create({
     bottomNavBar: {
         position: 'absolute',
-        left: 10,
-        right: 10,
-        bottom: 10,
-        height: 70,
-        borderRadius: 25,
-        backgroundColor: '#787878',
+        left: 12,
+        right: 12,
+        bottom: 12,
+        height: 72,
+        borderRadius: 24,
+        backgroundColor: '#2A2A2A', // තව ටිකක් ඩාර්ක් ප්‍රිමියම් කලර් එකක් දැම්මා බැක්ග්‍රවුන්ඩ් එකට
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-around',
-        borderWidth: 2.5,
-        borderColor: '#8f8d8d',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
         shadowColor: '#000',
-        shadowOpacity: 0.12,
-        shadowRadius: 10,
-        shadowOffset: { width: 2, height: 4 },
-        elevation: 8,
+        shadowOpacity: 0.2,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 10,
     },
     bottomNavItem: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
+        height: '100%',
     },
     bottomNavLabel: {
-        marginTop: 4,
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#8F8A84',
+        marginTop: 5,
+        fontSize: 10,
+        fontWeight: '600',
+        letterSpacing: 0.3,
     },
     bottomNavLabelActive: {
         fontWeight: '800',
-        textShadowColor: 'rgba(0,0,0,0.12)',
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 1,
     },
 });

@@ -1,5 +1,5 @@
-import React from 'react';
-import { TouchableOpacity, Text, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { TouchableOpacity, Text, View, Animated } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -17,10 +17,36 @@ import NearBy from './screens/NearBy';
 const AuthStack = createNativeStackNavigator();
 const MainStack = createNativeStackNavigator();
 
+// 🌟 හැම Page එකක්ම ඇතුලට යද්දී ලස්සනට මතු වෙන්න හදපු Premium Wrapper එක
+const FadeScaleWrapper = ({ children }) => {
+  const fadeAnim = useRef(new Animated.Value(0)).current; // Opacity එක 0 ඉඳන්
+  const scaleAnim = useRef(new Animated.Value(0.96)).current; // Size එක 96% ඉඳන් 100% ට
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 250, // ලස්සනට smooth වෙන්න වෙලාව
+        useNativeDriver: true,
+      }),
+      Animated.timing(scaleAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, scaleAnim]);
+
+  return (
+    <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
+      {children}
+    </Animated.View>
+  );
+};
+
 function MainNavigator() {
   const { handleLogout, user } = useAuth();
 
-  // වෙලාව අනුව සුබපැතුම තීරණය කරන function එක
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
@@ -29,11 +55,17 @@ function MainNavigator() {
   };
 
   return (
-    <MainStack.Navigator>
+    <MainStack.Navigator 
+      screenOptions={{ 
+        headerShown: false,
+        animation: 'none', // Stack එකෙන් දෙන කැත animations සම්පූර්ණයෙන්ම අයින් කලා
+      }}
+    >
       <MainStack.Screen
         name="Home"
         component={HomeScreen}
         options={{
+          headerShown: true, 
           headerTitleAlign: 'left',
           headerTitle: () => (
             <View>
@@ -50,16 +82,26 @@ function MainNavigator() {
         }}
       />
 
-      <MainStack.Screen 
-        name="PetDetails" 
-        component={PetDetailsScreen} 
-        options={{ title: 'Pet Details' }} 
-      />
+      {/* 🌟 මෙතන ඉඳන් හැම Screen එකක්ම wrapper එක ඇතුලට දාලා තියෙන්නේ ලස්සන පෙනුම ගන්න */}
+      <MainStack.Screen name="PetDetails">
+        {() => <FadeScaleWrapper><PetDetailsScreen /></FadeScaleWrapper>}
+      </MainStack.Screen>
       
-      <MainStack.Screen name="AIChat" component={AIchat} options={{ title: 'AI Chat' }} />
-      <MainStack.Screen name="MealPlane" component={MealPlane} options={{ title: 'Meal Plan' }} />
-      <MainStack.Screen name="Vaccine" component={Vaccine} options={{ title: 'Vaccine' }} />
-      <MainStack.Screen name="Nearby" component={NearBy} options={{ title: 'Nearby' }} />
+      <MainStack.Screen name="AIChat">
+        {() => <FadeScaleWrapper><AIchat /></FadeScaleWrapper>}
+      </MainStack.Screen>
+      
+      <MainStack.Screen name="MealPlane">
+        {() => <FadeScaleWrapper><MealPlane /></FadeScaleWrapper>}
+      </MainStack.Screen>
+      
+      <MainStack.Screen name="Vaccine">
+        {() => <FadeScaleWrapper><Vaccine /></FadeScaleWrapper>}
+      </MainStack.Screen>
+      
+      <MainStack.Screen name="Nearby">
+        {() => <FadeScaleWrapper><NearBy /></FadeScaleWrapper>}
+      </MainStack.Screen>
     </MainStack.Navigator>
   );
 }
@@ -76,7 +118,6 @@ function AuthNavigator() {
 
 function RootNavigator() {
   const { user } = useAuth();
-
   return user ? <MainNavigator /> : <AuthNavigator />;
 }
 

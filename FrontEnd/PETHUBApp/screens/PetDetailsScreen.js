@@ -5,6 +5,7 @@ import {
     ActivityIndicator, Alert, StatusBar,
     SafeAreaView,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { getAllPets, getMyPets } from '../services/petApi';
@@ -18,6 +19,7 @@ import {
     removeMatch,
 } from '../services/matchApi';
 import BottomNavBar from './BottomNavBar';
+import MenuSide from './menuside';
 
 export default function PetDetailsScreen() {
 
@@ -31,12 +33,21 @@ export default function PetDetailsScreen() {
     const [deletingMatchId, setDeletingMatchId] = useState(null);
     const [removingMatchId, setRemovingMatchId] = useState(null);
     const [selectedMyPetId, setSelectedMyPetId] = useState(null);
+    const [drawerVisible, setDrawerVisible] = useState(false);
 
-    const { user } = useAuth();
+    const { user, handleLogout } = useAuth();
     const navigation = useNavigation();
     const route = useRoute();
 
     const viewedPet = route?.params?.pet ?? null;
+
+    const openDrawer = () => setDrawerVisible(true);
+    const closeDrawer = () => setDrawerVisible(false);
+
+    const goToScreen = (screenName) => {
+        closeDrawer();
+        navigation.navigate(screenName);
+    };
 
     const isViewedPetMine = useMemo(
         () => !!viewedPet?.id && myPets.some((pet) => pet?.id === viewedPet.id),
@@ -210,9 +221,6 @@ export default function PetDetailsScreen() {
         );
     };
 
-    // ─── RENDER: My Pet Picker ───────────────────────────────────────────────
-    
-
     // ─── RENDER: Breeding Match Card ─────────────────────────────────────────
     const renderMatch = ({ item }) => {
         const bestMatch = isBestMatch(item);
@@ -345,17 +353,29 @@ export default function PetDetailsScreen() {
     // ─── LIST HEADER ─────────────────────────────────────────────────────────
     const ListHeader = () => (
         <View>
-            {/* ── Hero Welcome Banner ── */}
+            {/* ── Hero Welcome Banner with Integrated Cutout Menu ── */}
             <View style={styles.heroBanner}>
+                
+                {/* Left Cutout Design for Side Menu */}
+                <View style={styles.cutoutContainer}>
+                    <TouchableOpacity
+                        style={styles.drawerToggle}
+                        onPress={openDrawer}
+                        activeOpacity={0.85}
+                    >
+                        <MaterialIcons name="menu" size={22} color={COLORS.white} />
+                    </TouchableOpacity>
+                </View>
+
                 <View style={styles.heroContent}>
-                    <Text style={styles.heroGreeting}>Hello 👋</Text>
+                    <Text style={styles.heroGreeting}>Hello</Text>
                     <Text style={styles.heroTitle}>
                         {selectedMyPet ? `Welcome, ${selectedMyPet.name}!` : 'Pet Matching'}
                     </Text>
                     <Text style={styles.heroSubtitle}>Find the perfect breeding partner</Text>
                 </View>
 
-                {/* ── Pet Avatar (replaces 🐾 icon when pet is selected) ── */}
+                {/* ── Pet Avatar ── */}
                 <View style={styles.heroPaw}>
                     {selectedMyPet ? (
                         <Image
@@ -367,8 +387,6 @@ export default function PetDetailsScreen() {
                     )}
                 </View>
             </View>
-
-            
 
             {/* ── Featured Profile ── */}
             {featuredTargetPet && (
@@ -468,6 +486,13 @@ export default function PetDetailsScreen() {
             <View pointerEvents="none" style={styles.bgPetalRight} />
             <Text pointerEvents="none" style={styles.bgPawMarkOne}>🐾</Text>
             <Text pointerEvents="none" style={styles.bgPawMarkTwo}>🐾</Text>
+
+            <MenuSide
+                visible={drawerVisible}
+                onClose={closeDrawer}
+                onNavigate={goToScreen}
+                onLogout={handleLogout}
+            />
 
             <FlatList
                 data={confirmedMatches}
@@ -588,27 +613,83 @@ const styles = StyleSheet.create({
     },
     loadingText: { color: COLORS.mid, fontSize: 15, fontWeight: '500' },
 
-    // ── Hero Banner ──
+    // ── Hero Banner (Modifed for Cutout Effect) ──
+    // ── Hero Banner (Modifed for Cutout Effect) ──
+    // ── Hero Banner (Slimmer & Adjusted for Floating Image) ──
     heroBanner: {
-        flexDirection: 'row', alignItems: 'center',
+        flexDirection: 'row', 
+        alignItems: 'center',
         justifyContent: 'space-between',
         backgroundColor: COLORS.dark,
-        marginHorizontal: 14, marginTop: 16, marginBottom: 8,
-        borderRadius: 22, padding: 20,
+        marginRight: 18, 
+        marginLeft: 0, 
+        marginTop: 50, // Image එක උඩට නෙරන නිසා marginTop පොඩ්ඩක් වැඩි කලා
+        marginBottom: 15, // යට තියෙන ඒවට ඉඩ දෙන්න marginBottom වැඩි කලා
+        borderTopRightRadius: 22,
+        borderBottomRightRadius: 22,
+        paddingVertical: 10, // Box එක අනවශ්‍ය විදියට මහත වෙන එක අඩු කලා (කලින් 20/24 තිබ්බේ)
+        paddingRight: 16,
+        paddingLeft: 0, 
+        position: 'relative', // Floating effect එකට අත්‍යවශ්‍යයි
     },
-    heroContent: { flex: 1 },
-    heroGreeting: { color: COLORS.light, fontSize: 13, fontWeight: '500', marginBottom: 4 },
-    heroTitle: { color: COLORS.white, fontSize: 22, fontWeight: '800', lineHeight: 28, marginBottom: 4 },
-    heroSubtitle: { color: '#9E9892', fontSize: 13 },
-    heroPaw: { marginLeft: 10 },
+    
+    // Cutout Container
+    cutoutContainer: {
+        backgroundColor: COLORS.bg, 
+        width: 55,
+        height: 64,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderTopRightRadius: 32,    
+        borderBottomRightRadius: 32, 
+        marginRight: 12,
+    },
 
-    // ✅ Hero Pet Avatar — replaces 🐾 icon when a pet is selected
+    drawerToggle: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#111111', 
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#000',
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        shadowOffset: { width: 1, height: 2 },
+        elevation: 4,
+    },
+
+    heroContent: { 
+        flex: 1, 
+        paddingRight: 95, // Image එක text උඩින් යන්නේ නැති වෙන්න දකුණු පැත්තෙන් ඉඩක් තැබුවා
+        justifyContent: 'center',
+    },
+    heroGreeting: { color: COLORS.light, fontSize: 13, fontWeight: '500', marginBottom: 2 },
+    heroTitle: { color: COLORS.white, fontSize: 21, fontWeight: '800', lineHeight: 26, marginBottom: 2 },
+    heroSubtitle: { color: '#9E9892', fontSize: 12 },
+    
+    // ── Pet Avatar Position Adjustments ──
+    heroPaw: { 
+        position: 'absolute', // Box එක ඇතුලේ හිර නොවී එලියට පනින්න absolute කලා
+        right: 14,             // දකුණු කෙළවරේ පිහිටීම
+        top: -15,            // Box එකෙන් උඩට 15px ක් පැනලා ඉන්න (Floating Effect)
+        bottom: -15,         // Box එකෙන් යටටත් 15px ක් පැනලා ඉන්න
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
     heroPetAvatar: {
-        width: 85,
-        height: 85,
-        borderRadius: 36,
-        borderWidth: 3,
-        borderColor: COLORS.primary,
+        width: 87,          // Image එක 100px ලෙස ලොකුවට තැබුවා
+        height: 87, 
+        borderRadius: 45,    // පරිපූර්ණ රවුමක් ගන්න හරියටම width එකෙන් අඩක් (50) දුන්නා
+        borderWidth: 2.0,    
+        borderColor: COLORS.primary, 
+        backgroundColor: COLORS.card,
+        // Image එක කැපිලා පේන්න පොඩි shadow එකක්
+        shadowColor: '#000',
+        shadowOpacity: 0.2,
+        shadowRadius: 5,
+        shadowOffset: { width: 0, height: 3 },
     },
 
     // ── Section Header ──
@@ -631,27 +712,6 @@ const styles = StyleSheet.create({
     },
     emptyIcon: { fontSize: 28, marginBottom: 6 },
     emptyText: { color: COLORS.light, fontSize: 13, fontWeight: '500' },
-
-    // ── My Pet Picker ──
-    myPetCard: {
-        alignItems: 'center', marginRight: 10,
-        paddingVertical: 10, paddingHorizontal: 12,
-        borderRadius: 18, backgroundColor: COLORS.card,
-        borderWidth: 1.5, borderColor: '#EDE8E3',
-    },
-    myPetCardSelected: { backgroundColor: COLORS.dark, borderColor: COLORS.dark },
-    myPetImageWrapper: {
-        width: 64, height: 64, borderRadius: 32,
-        borderWidth: 2, borderColor: '#EDE8E3', overflow: 'hidden',
-    },
-    myPetImageWrapperSelected: { borderColor: COLORS.primary },
-    myPetImage: { width: '100%', height: '100%' },
-    myPetName: { marginTop: 6, color: COLORS.dark, fontWeight: '600', fontSize: 13 },
-    myPetNameSelected: { color: COLORS.white },
-    selectedDot: {
-        width: 6, height: 6, borderRadius: 3,
-        backgroundColor: COLORS.primary, marginTop: 4,
-    },
 
     // ── Featured Card ──
     featureCard: {
@@ -751,7 +811,6 @@ const styles = StyleSheet.create({
     confirmedImage: { width: '100%', height: '100%', position: 'absolute' },
     confirmedOverlay: {
         flex: 1, justifyContent: 'flex-end', padding: 18,
-        backgroundColor: 'rgba(28,25,23,0.55)',
     },
     confirmedBadge: {
         alignSelf: 'flex-start', backgroundColor: COLORS.accent,
