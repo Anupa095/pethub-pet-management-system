@@ -1,11 +1,23 @@
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import cv2
 import numpy as np
+from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
+
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 # Setup simple logging
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +25,102 @@ logger = logging.getLogger(__name__)
 
 # Global model variable
 model = None
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[dict[str, object]] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    model: str | None = None
+    reasoning_details: object | None = None
+
+
+class LLMAdvisor:
+    def __init__(self):
+        self.api_key = (
+            os.getenv("OPENROUTER_API_KEY", "").strip()
+            or os.getenv("OPENAI_API_KEY", "").strip()
+        )
+        self.base_url = os.getenv("OPENAI_BASE_URL", "").strip()
+
+        if not self.base_url and self.api_key:
+            self.base_url = "https://openrouter.ai/api/v1"
+
+        self.model = os.getenv("OPENAI_MODEL", "tencent/hy3:free").strip() or "tencent/hy3:free"
+
+        self.enabled = bool(self.api_key and OpenAI is not None)
+
+        if self.enabled:
+            client_kwargs = {"api_key": self.api_key}
+
+            if self.base_url:
+                client_kwargs["base_url"] = self.base_url
+
+            if "openrouter.ai" in self.base_url:
+                client_kwargs["default_headers"] = {
+                    "HTTP-Referer": "https://pethub.local",
+                    "X-Title": "PetHub",
+                }
+
+            self._client = OpenAI(**client_kwargs)
+        else:
+            self._client = None
+
+    def generate(self, message: str, history: list[dict[str, object]] | None = None) -> dict[str, object]:
+        clean_message = (message or "").strip()
+        clean_history = history or []
+
+        if not clean_message:
+            raise HTTPException(status_code=400, detail="Message is required.")
+
+        if not self.enabled:
+            raise HTTPException(status_code=503, detail="LLM client is not configured.")
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a professional veterinary assistant for PetHub. "
+                    "Always explain that this is not a confirmed diagnosis. "
+                    "Give concise, practical advice and include urgent warning signs when relevant."
+                ),
+            },
+        ]
+
+        for item in clean_history[-10:]:
+            role = (item.get("role") or "user").strip()
+            content = (item.get("content") or "").strip()
+            reasoning_details = item.get("reasoning_details")
+            if content:
+                history_message = {"role": role, "content": content}
+                if role == "assistant" and reasoning_details is not None:
+                    history_message["reasoning_details"] = reasoning_details
+                messages.append(history_message)
+
+        messages.append({"role": "user", "content": clean_message})
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                extra_body={"reasoning": {"enabled": True}},
+            )
+            assistant_message = response.choices[0].message if response.choices else None
+            answer = assistant_message.content if assistant_message else ""
+            return {
+                "answer": answer or "No response returned by the model.",
+                "model": self.model,
+                "reasoning_details": getattr(assistant_message, "reasoning_details", None) if assistant_message else None,
+            }
+        except Exception as exc:
+            logger.exception("LLM request failed")
+            raise HTTPException(status_code=502, detail=f"LLM request failed: {str(exc)}")
+
+
+advisor = LLMAdvisor()
 
 BREEDS = {
     "Dog": [
@@ -117,6 +225,17 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_ai(payload: ChatRequest):
+    """Send a chat message to OpenRouter/OpenAI and return the assistant response."""
+    result = advisor.generate(payload.message, payload.history)
+    return ChatResponse(
+        answer=result["answer"],
+        model=result.get("model"),
+        reasoning_details=result.get("reasoning_details"),
+    )
+
 @app.post("/verify-pet-image")
 async def verify_pet_image(file: UploadFile = File(...)):
     """
@@ -177,4 +296,8 @@ async def verify_pet_image(file: UploadFile = File(...)):
 @app.get("/health")
 async def health_check():
     """Simple healthcheck endpoint."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "llm_enabled": advisor.enabled,
+        "llm_model": advisor.model if advisor.enabled else None,
+    }
