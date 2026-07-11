@@ -26,21 +26,19 @@ const SCREEN_TO_NAV_LABEL = {
 
 // 🌟 Icon එක ලස්සනට බවුන්ස් වෙන්න හදපු ඇනිමේටඩ් කම්පෝනන්ට් එක
 const AnimatedTabItem = ({ label, icon, active, onPress }) => {
-    // scaleAnim එක default 1 තියෙනවා
     const scaleAnim = useRef(new Animated.Value(1)).current;
 
-    // Active වෙනකොට ස්ප්‍රින්ග් එකක් වගේ බවුන්ස් කරවන ඉෆෙක්ට් එක
     useEffect(() => {
         if (active) {
             Animated.spring(scaleAnim, {
-                toValue: 1.2, // Icon එක 20%ක් ලොකු වෙනවා
-                friction: 4,  // බවුන්ස් වෙන ගතිය (අඩු වන තරමට බවුන්ස් එක වැඩි වේ)
-                tension: 40,  // වේගය
+                toValue: 1.2,
+                friction: 4,
+                tension: 40,
                 useNativeDriver: true,
             }).start();
         } else {
             Animated.timing(scaleAnim, {
-                toValue: 1, // සාමාන්‍ය ප්‍රමාණයට එනවා
+                toValue: 1,
                 duration: 150,
                 useNativeDriver: true,
             }).start();
@@ -53,7 +51,6 @@ const AnimatedTabItem = ({ label, icon, active, onPress }) => {
             activeOpacity={0.9}
             onPress={onPress}
         >
-            {/* 🌟 Animated.View එකෙන් අයිකොන් එක විතරක් ඇනිමේට් කරනවා */}
             <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
                 <Ionicons
                     name={icon}
@@ -61,7 +58,7 @@ const AnimatedTabItem = ({ label, icon, active, onPress }) => {
                     color={active ? NAV_TEXT_COLORS.active : NAV_COLORS[label]}
                 />
             </Animated.View>
-            
+
             <Text
                 style={[
                     styles.bottomNavLabel,
@@ -81,12 +78,21 @@ export default function BottomNavBar() {
 
     const activeLabel = SCREEN_TO_NAV_LABEL[route?.name] || 'Breeding';
 
+    // 🔑 දැනට open වෙලා තියෙන screen එකේ params එකේ pet එකක් තිබ්බොත්,
+    // ඒ pet එකම තමයි "current pet" කියලා ගන්නේ. Tab මාරු කරද්දී මේක ඕන
+    // තැනට ම forward කරනවා, එතකොට pet එක වෙනස් වෙන්නේ නෑ.
+    const currentPet = route?.params?.pet ?? null;
+
     const handlePress = (tab) => {
-        if (tab === 'Breeding') return navigation.navigate('PetDetails');
-        if (tab === 'AI-chat') return navigation.navigate('AIChat');
-        if (tab === 'Vaccine') return navigation.navigate('Vaccine');
-        if (tab === 'Meal Plan') return navigation.navigate('MealPlane');
-        if (tab === 'Nearby') return navigation.navigate('Nearby');
+        // Params object එක හැම තැනකටම එකම විදිහට pass කරනවා.
+        // pet එකක් තියෙනවා නම් විතරක් ඇතුළත් කරනවා (නැත්නම් params නෑ).
+        const params = currentPet ? { pet: currentPet } : undefined;
+
+        if (tab === 'Breeding') return navigation.push('PetDetails', params);
+        if (tab === 'AI-chat') return navigation.push('AIChat', params);
+        if (tab === 'Vaccine') return navigation.push('Vaccine', params);
+        if (tab === 'Meal Plan') return navigation.push('MealPlane', params);
+        if (tab === 'Nearby') return navigation.push('Nearby', params);
     };
 
     return (
@@ -108,7 +114,7 @@ const styles = StyleSheet.create({
         bottom: 12,
         height: 72,
         borderRadius: 24,
-        backgroundColor: '#2A2A2A', // තව ටිකක් ඩාර්ක් ප්‍රිමියම් කලර් එකක් දැම්මා බැක්ග්‍රවුන්ඩ් එකට
+        backgroundColor: '#2A2A2A',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-around',

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
 	Alert,
 	ActivityIndicator,
@@ -11,26 +11,52 @@ import {
 	View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRoute, useFocusEffect } from '@react-navigation/native';
 import BottomNavBar from './BottomNavBar';
 import { sendChatMessage } from '../services/chatApi';
 
-const emptyIntroMessage = {
+const makeIntroMessage = () => ({
 	id: 'intro',
 	role: 'assistant',
 	content: 'Ask a pet care question. Answers come from the Python AI backend only.',
 	createdAt: null,
-};
+});
 
 export default function AIchat() {
 	const scrollRef = useRef(null);
 	const typingTimerRef = useRef(null);
+	const route = useRoute();
 
-	const [messages, setMessages] = useState([emptyIntroMessage]);
+	// 🔑 මේ chat screen එක open කරන pet එකේ id එක. Pet එකක් pass වෙලා නැත්නම්
+	// 'default' කියලා fallback එකක් යොදනවා.
+	const currentPetId = route?.params?.pet?.id ?? 'default';
+	const currentPetName = route?.params?.pet?.name ?? '';
+
+	// 🔑 Pet id එකට අනුව වෙනම messages array එකක් තියෙන object එකක්.
+	// { [petId]: [ ...messages ] }
+	const [messagesByPet, setMessagesByPet] = useState({});
+	// 🔑 Pet එකකට Clear/New chat කරාට පස්සේ, ඒ pet එකේ history (past sessions) මෙතන තියාගන්නවා.
+	const [historyByPet, setHistoryByPet] = useState({});
+
+	const messages = messagesByPet[currentPetId] ?? [makeIntroMessage()];
+	const history = historyByPet[currentPetId] ?? [];
+
 	const [draftMessage, setDraftMessage] = useState('');
 	const [isSending, setIsSending] = useState(false);
 	const [isTyping, setIsTyping] = useState(false);
 	const [historyVisible, setHistoryVisible] = useState(false);
 	const [lastModel, setLastModel] = useState('');
+
+	// Wrapper එකක් — කලින් තිබ්බ setMessages() calls ඔක්කොම වෙනස් කරන්නේ නැතුව
+	// වැඩ කරන්න, updater function එකක් හෝ array එකක් accept කරලා
+	// current pet එකේ messages විතරක් update කරනවා.
+	const setMessages = useCallback((updater) => {
+		setMessagesByPet((prev) => {
+			const currentForPet = prev[currentPetId] ?? [makeIntroMessage()];
+			const next = typeof updater === 'function' ? updater(currentForPet) : updater;
+			return { ...prev, [currentPetId]: next };
+		});
+	}, [currentPetId]);
 
 	useEffect(() => {
 		if (scrollRef.current) {
@@ -46,15 +72,51 @@ export default function AIchat() {
 		};
 	}, []);
 
-	const startNewChat = () => {
+	const startNewChat = useCallback((options = {}) => {
+		const { silent = false } = options;
+
 		if (typingTimerRef.current) {
 			clearInterval(typingTimerRef.current);
+			typingTimerRef.current = null;
 		}
 		setIsTyping(false);
-		setMessages([emptyIntroMessage]);
+		setIsSending(false);
 		setDraftMessage('');
 		setLastModel('');
-	};
+
+		setMessagesByPet((prev) => {
+			const existing = (prev[currentPetId] ?? []).filter((m) => m.id !== 'intro');
+
+			// පරණ conversation එකක් තිබුනොත් (intro විතරක් නෙවෙයි), history එකට දානවා
+			if (existing.length > 0) {
+				setHistoryByPet((prevHistory) => {
+					const petHistory = prevHistory[currentPetId] ?? [];
+					return {
+						...prevHistory,
+						[currentPetId]: [
+							{ id: `session-${Date.now()}`, savedAt: Date.now(), messages: existing },
+							...petHistory,
+						],
+					};
+				});
+			}
+
+			return { ...prev, [currentPetId]: [makeIntroMessage()] };
+		});
+
+		if (!silent) {
+			setHistoryVisible(false);
+		}
+	}, [currentPetId]);
+
+	// 🔑 Screen එකට enter වෙන හැම වතාවකම (tab එකෙන් හෝ navigation එකෙන්)
+	// automatic-ම අලුත් chat එකක් පටන් ගන්නවා. පරණ conversation එක history එකට move වෙනවා.
+	useFocusEffect(
+		useCallback(() => {
+			startNewChat({ silent: true });
+			// eslint-disable-next-line react-hooks/exhaustive-deps
+		}, [currentPetId])
+	);
 
 	const openHistory = () => {
 		setHistoryVisible(true);
@@ -165,16 +227,11 @@ export default function AIchat() {
 			<View style={styles.topCard}>
 				<View style={styles.topRow}>
 					<View>
-						<View style={styles.badge}>
-							<Ionicons name="sparkles-outline" size={14} color="#7C4A13" />
-							<Text style={styles.badgeText}>PETHUB Agentic AI</Text>
-						</View>
-						<Text style={styles.title}>AI Chat</Text>
-						<Text style={styles.subtitle}>Answers come only from the Python backend.</Text>
+						<Text style={styles.title}>AI Chat{currentPetName ? ` · ${currentPetName}` : ''}</Text>
 					</View>
 
 					<View style={styles.actionRow}>
-						<TouchableOpacity style={styles.iconButton} onPress={startNewChat}>
+						<TouchableOpacity style={styles.iconButton} onPress={() => startNewChat()}>
 							<Ionicons name="add-circle-outline" size={22} color="#8B5E3C" />
 						</TouchableOpacity>
 						<TouchableOpacity style={styles.iconButton} onPress={openHistory}>
@@ -182,27 +239,9 @@ export default function AIchat() {
 						</TouchableOpacity>
 					</View>
 				</View>
-
-				<View style={styles.statusRow}>
-					<View style={styles.statusPill}>
-						<View style={styles.statusDot} />
-						<Text style={styles.statusText}>Python backend connected</Text>
-					</View>
-					{lastModel ? (
-						<View style={styles.statusPillMuted}>
-							<Ionicons name="chatbubble-ellipses-outline" size={14} color="#8B5E3C" />
-							<Text style={styles.statusTextMuted}>{lastModel}</Text>
-						</View>
-					) : null}
-				</View>
 			</View>
 
 			<View style={styles.chatCard}>
-				<View style={styles.chatHeaderRow}>
-					<Text style={styles.sectionTitle}>Conversation</Text>
-					<Text style={styles.sectionHint}>{isTyping ? 'Typing response...' : `${messages.length} message${messages.length === 1 ? '' : 's'}`}</Text>
-				</View>
-
 				{(isSending || isTyping) && (
 					<View style={styles.workingBanner}>
 						<ActivityIndicator size="small" color="#8B5E3C" />
@@ -250,8 +289,8 @@ export default function AIchat() {
 					<View style={styles.modalCard}>
 						<View style={styles.modalHeader}>
 							<View>
-								<Text style={styles.modalTitle}>Current History</Text>
-								<Text style={styles.modalSubtitle}>Messages from this chat session only</Text>
+								<Text style={styles.modalTitle}>Chat History{currentPetName ? ` · ${currentPetName}` : ''}</Text>
+								<Text style={styles.modalSubtitle}>Previous conversations with this pet</Text>
 							</View>
 							<TouchableOpacity style={styles.iconButton} onPress={() => setHistoryVisible(false)}>
 								<Ionicons name="close" size={22} color="#8B5E3C" />
@@ -259,29 +298,31 @@ export default function AIchat() {
 						</View>
 
 						<ScrollView style={styles.historyScroll} contentContainerStyle={styles.historyScrollContent} showsVerticalScrollIndicator={false}>
-							{messages.length <= 1 ? (
+							{history.length === 0 ? (
 								<View style={styles.modalEmptyState}>
 									<Ionicons name="time-outline" size={28} color="#B08968" />
-									<Text style={styles.modalEmptyText}>No conversation yet.</Text>
+									<Text style={styles.modalEmptyText}>No past conversations yet.</Text>
 								</View>
 							) : (
-								messages
-									.filter((message) => message.id !== 'intro')
-									.map((message) => (
-										<View key={`history-${message.id}`} style={styles.historyItem}>
-											<Text style={styles.historyRole}>{message.role === 'user' ? 'You' : 'AI'}</Text>
-											<Text style={styles.historyText}>{message.content}</Text>
-											{message.reasoning_details ? (
-												<Text style={styles.historyReasoning}>Reasoning kept for next turn</Text>
-											) : null}
-										</View>
-									))
+								history.map((session) => (
+									<View key={session.id} style={styles.historySession}>
+										<Text style={styles.historySessionDate}>
+											{new Date(session.savedAt).toLocaleString()}
+										</Text>
+										{session.messages.map((message) => (
+											<View key={`history-${session.id}-${message.id}`} style={styles.historyItem}>
+												<Text style={styles.historyRole}>{message.role === 'user' ? 'You' : 'AI'}</Text>
+												<Text style={styles.historyText}>{message.content}</Text>
+											</View>
+										))}
+									</View>
+								))
 							)}
 						</ScrollView>
 
-						<TouchableOpacity style={styles.newChatButton} onPress={startNewChat}>
+						<TouchableOpacity style={styles.newChatButton} onPress={() => startNewChat()}>
 							<Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
-							<Text style={styles.newChatButtonText}>Clear chat</Text>
+							<Text style={styles.newChatButtonText}>Start new chat</Text>
 						</TouchableOpacity>
 					</View>
 				</View>
@@ -300,8 +341,8 @@ const styles = StyleSheet.create({
 	topCard: {
 		marginHorizontal: 16,
 		marginTop: 16,
-		padding: 18,
-		borderRadius: 28,
+		padding: 16,
+		borderRadius: 24,
 		backgroundColor: '#FFF8EF',
 		borderWidth: 1,
 		borderColor: '#E8D7C1',
@@ -309,42 +350,18 @@ const styles = StyleSheet.create({
 	topRow: {
 		flexDirection: 'row',
 		justifyContent: 'space-between',
-		alignItems: 'flex-start',
+		alignItems: 'center',
 		gap: 12,
 	},
 	actionRow: {
 		flexDirection: 'row',
 		gap: 10,
 	},
-	badge: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		gap: 6,
-		paddingHorizontal: 10,
-		paddingVertical: 7,
-		borderRadius: 999,
-		backgroundColor: '#F8E2C7',
-		alignSelf: 'flex-start',
-	},
-	badgeText: {
-		fontSize: 11,
-		fontWeight: '800',
-		color: '#7C4A13',
-		letterSpacing: 0.4,
-		textTransform: 'uppercase',
-	},
 	title: {
-		fontSize: 30,
-		lineHeight: 36,
+		fontSize: 22,
+		lineHeight: 28,
 		fontWeight: '900',
 		color: '#1F2937',
-		marginTop: 10,
-	},
-	subtitle: {
-		fontSize: 13,
-		lineHeight: 19,
-		color: '#6B5A4E',
-		marginTop: 4,
 	},
 	iconButton: {
 		width: 40,
@@ -355,48 +372,6 @@ const styles = StyleSheet.create({
 		borderColor: '#E8D7C1',
 		alignItems: 'center',
 		justifyContent: 'center',
-	},
-	statusRow: {
-		flexDirection: 'row',
-		gap: 10,
-		marginTop: 16,
-		flexWrap: 'wrap',
-	},
-	statusPill: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		gap: 6,
-		paddingHorizontal: 10,
-		paddingVertical: 7,
-		borderRadius: 999,
-		backgroundColor: '#EBF3EA',
-	},
-	statusPillMuted: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		gap: 6,
-		paddingHorizontal: 10,
-		paddingVertical: 7,
-		borderRadius: 999,
-		backgroundColor: '#FFF',
-		borderWidth: 1,
-		borderColor: '#E8D7C1',
-	},
-	statusDot: {
-		width: 8,
-		height: 8,
-		borderRadius: 999,
-		backgroundColor: '#2F855A',
-	},
-	statusText: {
-		fontSize: 11,
-		fontWeight: '700',
-		color: '#24513D',
-	},
-	statusTextMuted: {
-		fontSize: 11,
-		fontWeight: '700',
-		color: '#7B6B61',
 	},
 	chatCard: {
 		flex: 1,
@@ -409,22 +384,6 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		borderColor: '#E8DCCB',
 	},
-	chatHeaderRow: {
-		flexDirection: 'row',
-		justifyContent: 'space-between',
-		alignItems: 'center',
-		marginBottom: 10,
-	},
-	sectionTitle: {
-		fontSize: 18,
-		fontWeight: '900',
-		color: '#222222',
-	},
-	sectionHint: {
-		fontSize: 12,
-		color: '#7A6A60',
-		fontWeight: '600',
-	},
 	messageList: {
 		flex: 1,
 	},
@@ -433,11 +392,21 @@ const styles = StyleSheet.create({
 		gap: 10,
 	},
 	historyScroll: {
-		maxHeight: 280,
+		maxHeight: 380,
 	},
 	historyScrollContent: {
-		gap: 10,
+		gap: 14,
 		paddingBottom: 8,
+	},
+	historySession: {
+		gap: 8,
+	},
+	historySessionDate: {
+		fontSize: 11,
+		fontWeight: '800',
+		color: '#B08968',
+		textTransform: 'uppercase',
+		letterSpacing: 0.5,
 	},
 	workingBanner: {
 		flexDirection: 'row',
@@ -584,11 +553,6 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		color: '#7A6A60',
 		marginTop: 4,
-	},
-	modalLoading: {
-		paddingVertical: 20,
-		textAlign: 'center',
-		color: '#6B5A4E',
 	},
 	modalEmptyState: {
 		alignItems: 'center',
