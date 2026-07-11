@@ -143,9 +143,10 @@ BREEDS = {
     ],
 }
 
+# Aliases used ONLY to pick a nicer/more specific breed label once pet type is
+# already known. These no longer decide whether something IS a dog/cat.
 BREED_ALIASES = {
     "Dog": {
-        "Local": ["dog", "mixed breed", "mutt", "mongrel"],
         "German Shepherd": ["german shepherd"],
         "Retriever": ["retriever", "golden retriever", "labrador retriever"],
         "Boxer": ["boxer"],
@@ -156,42 +157,55 @@ BREED_ALIASES = {
         "Beagle": ["beagle"],
     },
     "Cat": {
-        "Local Cats": ["cat", "tabby", "tiger cat", "egyptian cat", "domestic cat"],
         "Persian Cat": ["persian cat"],
         "Siamese Cat": ["siamese cat"],
-        "British Shorthair": ["british shorthair"],
-        "Bengal Cat": ["bengal cat"],
+        # NOTE: ImageNet (the dataset MobileNetV2 is trained on) has no
+        # "British Shorthair" or "Bengal Cat" classes at all, so those two
+        # breeds can never be auto-detected from the image classifier alone.
+        # They stay in the options list for the user to pick manually.
     },
 }
 
-PET_TYPE_KEYWORDS = {
-    "Dog": ["dog", "retriever", "shepherd", "hound", "terrier", "pug", "poodle", "beagle", "rottweiler", "doberman", "pomeranian", "shih tzu", "husky"],
-    "Cat": ["cat", "tabby", "tiger cat", "persian cat", "siamese cat", "british shorthair", "bengal cat"],
-}
+# ---------------------------------------------------------------------------
+# Robust pet-type detection using MobileNetV2's actual ImageNet class indices
+# instead of fragile substring matching on label text. This is the main fix:
+# ImageNet has ~120 dog breed classes and 5 cat classes, but the old code only
+# checked for a handful of keywords, so most real dog/cat photos were being
+# reported as "No cat or dog detected" simply because their specific breed
+# name wasn't in the keyword list.
+# ---------------------------------------------------------------------------
+# ImageNet (ILSVRC) class indices 151-268 are all dog breeds (Chihuahua ... Mexican hairless).
+DOG_CLASS_INDEX_RANGE = range(151, 269)
+# ImageNet class indices 281-285 are the cat classes.
+CAT_CLASS_INDEX_RANGE = range(281, 286)
 
 
 def _normalize_label(label: str) -> str:
-    return label.lower().replace("_", " ").strip()
+    # Replace BOTH underscores and hyphens (ImageNet labels use both,
+    # e.g. "Shih-Tzu", "German_shepherd") so alias matching doesn't miss them.
+    return label.lower().replace("_", " ").replace("-", " ").strip()
 
 
-def _detect_pet_type(predictions):
-    for _, label, _ in predictions:
-        normalized = _normalize_label(label)
-        for pet_type, keywords in PET_TYPE_KEYWORDS.items():
-            if any(keyword in normalized for keyword in keywords):
-                return pet_type
+def _detect_pet_type(indexed_predictions):
+    """indexed_predictions: list of (class_index, class_id, label, score)."""
+    for class_index, _, _, _ in indexed_predictions:
+        if class_index in CAT_CLASS_INDEX_RANGE:
+            return "Cat"
+        if class_index in DOG_CLASS_INDEX_RANGE:
+            return "Dog"
     return None
 
 
-def _suggest_breed(pet_type: str, predictions):
-    breed_aliases = BREED_ALIASES[pet_type]
+def _suggest_breed(pet_type: str, indexed_predictions):
+    breed_aliases = BREED_ALIASES.get(pet_type, {})
 
-    for _, label, _ in predictions:
+    for _, _, label, _ in indexed_predictions:
         normalized = _normalize_label(label)
         for breed_name, aliases in breed_aliases.items():
             if any(alias in normalized for alias in aliases):
                 return breed_name
 
+    # No specific alias matched -> fall back to the generic "Local" option.
     return BREEDS[pet_type][0]
 
 
@@ -253,14 +267,26 @@ async def verify_pet_image(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail="Model is not loaded.")
 
         image = _prepare_image(contents)
-        predictions = model.predict(image, verbose=0)
+        predictions = model.predict(image, verbose=0)  # shape (1, 1000)
+
+        # Get the top-5 class indices (0-999) sorted by confidence, so we can
+        # check them against the known ImageNet dog/cat index ranges.
+        probs = predictions[0]
+        top_indices = probs.argsort()[::-1][:5]
+
         decoded_predictions = decode_predictions(predictions, top=5)[0]
-        top_predictions = [
-            (class_id, label, float(score))
-            for class_id, label, score in decoded_predictions
+
+        indexed_predictions = [
+            (int(idx), class_id, label, float(score))
+            for idx, (class_id, label, score) in zip(top_indices, decoded_predictions)
         ]
 
-        pet_type = _detect_pet_type(top_predictions)
+        pet_type = _detect_pet_type(indexed_predictions)
+
+        top_predictions_out = [
+            {"label": label, "confidence": round(score * 100, 2)}
+            for _, _, label, score in indexed_predictions
+        ]
 
         if pet_type is None:
             return JSONResponse({
@@ -268,24 +294,18 @@ async def verify_pet_image(file: UploadFile = File(...)):
                 "pet_type": None,
                 "breed": None,
                 "breed_options": [],
-                "predictions": [
-                    {"label": label, "confidence": round(score * 100, 2)}
-                    for _, label, score in top_predictions
-                ],
+                "predictions": top_predictions_out,
                 "message": "No cat or dog detected.",
             })
 
-        breed = _suggest_breed(pet_type, top_predictions)
+        breed = _suggest_breed(pet_type, indexed_predictions)
 
         return JSONResponse({
             "is_valid": True,
             "pet_type": pet_type,
             "breed": breed,
             "breed_options": BREEDS[pet_type],
-            "predictions": [
-                {"label": label, "confidence": round(score * 100, 2)}
-                for _, label, score in top_predictions
-            ],
+            "predictions": top_predictions_out,
             "message": f"{pet_type} detected. Suggested breed: {breed}.",
         })
 
