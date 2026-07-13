@@ -13,6 +13,7 @@ import AIchat from './screens/AIchat';
 import MealPlane from './screens/MealPlane';
 import Vaccine from './screens/Vaccine';
 import NearBy from './screens/NearBy';
+import PetProfile from './screens/PetProfile'; // 🐾 PetProfile ස්ක්‍රීන් එක import කරගත්තා
 
 const AuthStack = createNativeStackNavigator();
 const MainStack = createNativeStackNavigator();
@@ -61,6 +62,7 @@ function MainNavigator() {
         animation: 'none', // Stack එකෙන් දෙන කැත animations සම්පූර්ණයෙන්ම අයින් කලා
       }}
     >
+      {/* 🐾 Change Pet Profile බටන් එක ක්ලික් කළාම එන්න ඕනේ මුල්ම Home (Pet Selection) එක */}
       <MainStack.Screen
         name="Home"
         component={HomeScreen}
@@ -101,6 +103,16 @@ function MainNavigator() {
       
       <MainStack.Screen name="Nearby">
         {() => <FadeScaleWrapper><NearBy /></FadeScaleWrapper>}
+      </MainStack.Screen>
+
+      {/* 🐾 අලුතින් එකතු කරපු Pet Profile ස්ක්‍රීන් එක */}
+      <MainStack.Screen name="PetProfile">
+        {() => <FadeScaleWrapper><PetProfile /></FadeScaleWrapper>}
+      </MainStack.Screen>
+
+      {/* 🐾 මෙනු එකේ 'Change Pet Profile' එක ක්ලික් කළාම යන්න සකස් කරපු Route එක */}
+      <MainStack.Screen name="ChangePet">
+        {() => <FadeScaleWrapper><HomeScreen /></FadeScaleWrapper>}
       </MainStack.Screen>
     </MainStack.Navigator>
   );
