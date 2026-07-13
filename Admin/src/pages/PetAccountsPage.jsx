@@ -7,6 +7,52 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+// 🔥 Backend eke real endpoint eka: {PETS_BASE_URL}/image/{petId}
+// (services/api.js eke getPetImageUrl function ekata match wenna widiyata)
+function resolvePetImage(pet) {
+  if (!pet?.id) return null;
+  return `${API_BASE_URL}/pets/image/${pet.id}`;
+}
+
+function PetAvatar({ pet, size = 44 }) {
+  const [failed, setFailed] = useState(false);
+  const src = resolvePetImage(pet);
+
+  const wrapperStyle = {
+    width: size,
+    height: size,
+    borderRadius: "50%",
+    overflow: "hidden",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#e5e7eb",
+    flexShrink: 0,
+  };
+
+  if (!src || failed) {
+    const initial = (pet?.name || "?").trim().charAt(0).toUpperCase() || "?";
+    return (
+      <div style={wrapperStyle}>
+        <span style={{ fontSize: size * 0.4, fontWeight: 700, color: "#6b7280" }}>
+          {initial}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={wrapperStyle}>
+      <img
+        src={src}
+        alt={pet?.name || "Pet"}
+        onError={() => setFailed(true)}
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    </div>
+  );
+}
+
 export default function PetAccountsPage() {
   const navigate = useNavigate();
   const [pets, setPets] = useState([]);
@@ -237,6 +283,12 @@ export default function PetAccountsPage() {
                 Cancel
               </button>
             </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <PetAvatar pet={editingPet} size={64} />
+              <span className="muted">{editingPet.name || "Unnamed pet"}</span>
+            </div>
+
             <div className="form-grid-2">
               <label className="field">
                 <span>Name</span>
@@ -297,6 +349,7 @@ export default function PetAccountsPage() {
             <table>
               <thead>
                 <tr>
+                  <th>Photo</th>
                   <th>ID</th>
                   <th>Name</th>
                   <th>Type</th>
@@ -308,10 +361,13 @@ export default function PetAccountsPage() {
               </thead>
               <tbody>
                 {!loading && pets.length === 0 ? (
-                  <tr><td colSpan="7">No pets found.</td></tr>
+                  <tr><td colSpan="8">No pets found.</td></tr>
                 ) : (
                   pets.map((pet) => (
                     <tr key={pet.id || `${pet.name}-${pet.age}`}>
+                      <td>
+                        <PetAvatar pet={pet} />
+                      </td>
                       <td>{pet.id ?? "-"}</td>
                       <td>{pet.name || "N/A"}</td>
                       <td>{pet.type || "N/A"}</td>

@@ -3,6 +3,22 @@ import { useNavigate } from "react-router-dom";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 
+// 🔥 Brand tokens - mobile app eke COLORS ekatama match wenna widiyata
+const BRAND = {
+  bg: "#f6f1e8",
+  card: "#ffffff",
+  primary: "#a75c43",
+  primaryLight: "#f2e8e3",
+  accent: "#3d6b5e",
+  accentLight: "#e2ede9",
+  dark: "#111827",
+  mid: "#6b7280",
+  line: "#e8e3de",
+  male: "#3d6b5e",
+  female: "#a75c43",
+  unknown: "#b8860b",
+};
+
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -36,23 +52,160 @@ function buildAgeBuckets(pets) {
   return buckets;
 }
 
+function genderColor(gender) {
+  const key = (gender || "").toLowerCase();
+  if (key === "male") return BRAND.male;
+  if (key === "female") return BRAND.female;
+  return BRAND.unknown;
+}
+
+function genderIcon(gender) {
+  const key = (gender || "").toLowerCase();
+  if (key === "male") return "♂";
+  if (key === "female") return "♀";
+  return "•";
+}
+
 function HorizontalBars({ data, max }) {
   if (!data.length) {
     return <p className="hint">No data available.</p>;
   }
 
   return (
-    <div className="chart-bars">
+    <div className="chart-bars" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {data.map(([label, count]) => (
-        <div className="chart-row" key={label}>
-          <span className="chart-label">{label}</span>
-          <div className="chart-track">
-            <div className="chart-fill" style={{ width: `${(count / max) * 100}%` }} />
+        <div key={label} style={{ display: "grid", gridTemplateColumns: "96px 1fr 32px", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: BRAND.dark, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {label}
+          </span>
+          <div style={{ height: 10, borderRadius: 999, background: BRAND.primaryLight, overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${(count / max) * 100}%`,
+                borderRadius: 999,
+                background: `linear-gradient(90deg, #1b4332, #52b788)`,
+                transition: "width 0.4s ease",
+              }}
+            />
           </div>
-          <span className="chart-value">{count}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: BRAND.dark, textAlign: "right" }}>{count}</span>
         </div>
       ))}
     </div>
+  );
+}
+
+// 🔥 Gender Split - signature visual: stacked bar + icon pills
+function GenderSplit({ genders }) {
+  const entries = Object.entries(genders);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+
+  if (!total) {
+    return <p className="hint">No gender data available.</p>;
+  }
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          width: "100%",
+          height: 14,
+          borderRadius: 999,
+          overflow: "hidden",
+          marginBottom: 18,
+          boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.04)",
+        }}
+      >
+        {entries.map(([gender, count]) => (
+          <div
+            key={gender}
+            title={`${gender}: ${count}`}
+            style={{
+              width: `${(count / total) * 100}%`,
+              background: genderColor(gender),
+              transition: "width 0.4s ease",
+            }}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        {entries.map(([gender, count]) => {
+          const pct = Math.round((count / total) * 100);
+          return (
+            <div
+              key={gender}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 14px",
+                borderRadius: 14,
+                background: BRAND.bg,
+                border: `1px solid ${BRAND.line}`,
+                minWidth: 120,
+              }}
+            >
+              <span
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  background: genderColor(gender),
+                  flexShrink: 0,
+                }}
+              >
+                {genderIcon(gender)}
+              </span>
+              <div style={{ lineHeight: 1.2 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: BRAND.dark }}>{gender}</div>
+                <div style={{ fontSize: 12, color: BRAND.mid }}>{count} pets · {pct}%</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ icon, label, value, accent }) {
+  return (
+    <article
+      className="panel metric-panel"
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        borderLeft: `4px solid ${accent}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <span
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 10,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 17,
+            background: `${accent}1a`,
+          }}
+        >
+          {icon}
+        </span>
+        <h2 style={{ margin: 0 }}>{label}</h2>
+      </div>
+      <p className="big" style={{ margin: 0 }}>{value}</p>
+    </article>
   );
 }
 
@@ -156,6 +309,7 @@ export default function DashboardPage() {
 
   const maxTypeCount = analysis.topPetTypes[0]?.[1] || 1;
   const maxOwnerCount = analysis.topOwners[0]?.[1] || 1;
+  const maxAgeCount = Math.max(1, ...analysis.ageBuckets.map((b) => b.count));
 
   return (
     <main className={`admin-layout fade-in-up theme-${theme}`}>
@@ -173,7 +327,6 @@ export default function DashboardPage() {
           <button className="side-link" onClick={() => navigate("/users")}>User Accounts</button>
           <button className="side-link" onClick={() => navigate("/pets")}>Pet Accounts</button>
           <button className="side-link" onClick={() => navigate("/vaccination")}>Vaccination Checking</button>
-
         </nav>
 
         <div className="sidebar-foot">
@@ -209,22 +362,10 @@ export default function DashboardPage() {
         {error ? <p className="error-text">{error}</p> : null}
 
         <div className="metrics-grid">
-          <article className="panel metric-panel">
-            <h2>Total User Accounts</h2>
-            <p className="big">{loading ? "..." : users.length}</p>
-          </article>
-          <article className="panel metric-panel">
-            <h2>Total Pet Accounts</h2>
-            <p className="big">{loading ? "..." : pets.length}</p>
-          </article>
-          <article className="panel metric-panel">
-            <h2>Avg Pets / User</h2>
-            <p className="big">{loading ? "..." : avgPetsPerUser}</p>
-          </article>
-          <article className="panel metric-panel">
-            <h2>Unassigned Pet Profiles</h2>
-            <p className="big">{loading ? "..." : unassignedPets}</p>
-          </article>
+          <MetricCard icon="👥" label="Total User Accounts" value={loading ? "..." : users.length} accent={BRAND.primary} />
+          <MetricCard icon="🐾" label="Total Pet Accounts" value={loading ? "..." : pets.length} accent={BRAND.accent} />
+          <MetricCard icon="📊" label="Avg Pets / User" value={loading ? "..." : avgPetsPerUser} accent={BRAND.unknown} />
+          <MetricCard icon="❓" label="Unassigned Pet Profiles" value={loading ? "..." : unassignedPets} accent={BRAND.mid} />
         </div>
 
         <section className="analysis-grid">
@@ -249,11 +390,29 @@ export default function DashboardPage() {
               <h2>Age Segments</h2>
               <span className="mini-badge">4 bands</span>
             </div>
-            <div className="age-grid">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
               {analysis.ageBuckets.map((bucket) => (
-                <div className="age-card" key={bucket.label}>
-                  <p>{bucket.label}</p>
-                  <strong>{bucket.count}</strong>
+                <div
+                  key={bucket.label}
+                  style={{
+                    padding: "14px 12px",
+                    borderRadius: 14,
+                    background: BRAND.bg,
+                    border: `1px solid ${BRAND.line}`,
+                    textAlign: "center",
+                  }}
+                >
+                  <p style={{ margin: "0 0 6px", fontSize: 12, color: BRAND.mid, fontWeight: 600 }}>{bucket.label}</p>
+                  <strong style={{ fontSize: 22, color: BRAND.dark }}>{bucket.count}</strong>
+                  <div style={{ height: 4, borderRadius: 999, background: BRAND.primaryLight, marginTop: 8, overflow: "hidden" }}>
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${(bucket.count / maxAgeCount) * 100}%`,
+                        background: BRAND.primary,
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -262,19 +421,27 @@ export default function DashboardPage() {
 
         <section className="analysis-summary">
           <article className="panel">
-            <h2>Gender Split</h2>
-            <div className="legend-row">
-              {Object.entries(analysis.petGenders).map(([gender, count]) => (
-                <span key={gender}>{gender}: {count}</span>
-              ))}
+            <div className="panel-head">
+              <h2>Gender Split</h2>
+              <span className="mini-badge">{pets.length} pets</span>
             </div>
+            <GenderSplit genders={analysis.petGenders} />
           </article>
           <article className="panel">
             <h2>Account Health</h2>
-            <ul className="summary-list">
-              <li>Users with at least one pet: {usersWithPets}</li>
-              <li>Pets connected to owners: {ownedPets}</li>
-              <li>Profiles needing assignment: {unassignedPets}</li>
+            <ul className="summary-list" style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              <li style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", borderRadius: 12, background: BRAND.bg, border: `1px solid ${BRAND.line}` }}>
+                <span style={{ color: BRAND.mid }}>Users with at least one pet</span>
+                <strong style={{ color: BRAND.dark }}>{usersWithPets}</strong>
+              </li>
+              <li style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", borderRadius: 12, background: BRAND.bg, border: `1px solid ${BRAND.line}` }}>
+                <span style={{ color: BRAND.mid }}>Pets connected to owners</span>
+                <strong style={{ color: BRAND.dark }}>{ownedPets}</strong>
+              </li>
+              <li style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", borderRadius: 12, background: BRAND.bg, border: `1px solid ${BRAND.line}` }}>
+                <span style={{ color: BRAND.mid }}>Profiles needing assignment</span>
+                <strong style={{ color: BRAND.dark }}>{unassignedPets}</strong>
+              </li>
             </ul>
           </article>
         </section>
