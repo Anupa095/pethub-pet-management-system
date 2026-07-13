@@ -3,17 +3,14 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
+// 🎨 Theme Colors (Deep Cream Theme Edition)
 const NAV_COLORS = {
-    Breeding: '#edf4f1',
-    'AI-chat': '#edf4f1',
-    Nearby: '#edf4f1',
-    Vaccine: '#edf4f1',
-    'Meal Plan': '#edf4f1',
-};
-
-const NAV_TEXT_COLORS = {
-    active: '#FF8A00',
-    inactive: '#F2ECE5',
+    barBg: '#EAE5DB',            // UPDATE: සුදු පාට වෙනුවට දාපු ලස්සන තද ක්‍රීම් (Deep Cream) පසුබිම
+    activeIcon: '#a75c43',       // Active වුනාම ලැබෙන තද බ්‍රවුන් (Terracotta) පාට
+    inactiveIcon: '#8C857B',     // Inactive Icon වලට තද ක්‍රීම් එකට ගැලපෙන Darker Muted Gray-Gold
+    activeText: '#a75c43',       // Active Text Color
+    inactiveText: '#736B62',     // Inactive Text Color
+    border: '#DFD9CE',           // බාර් එක වටේට යන සියුම් Border එක
 };
 
 const SCREEN_TO_NAV_LABEL = {
@@ -24,16 +21,16 @@ const SCREEN_TO_NAV_LABEL = {
     Nearby: 'Nearby',
 };
 
-// 🌟 Icon එක ලස්සනට බවුන්ස් වෙන්න හදපු ඇනිමේටඩ් කම්පෝනන්ට් එක
+// 🌟 Icon Bounce Animation Component
 const AnimatedTabItem = ({ label, icon, active, onPress }) => {
     const scaleAnim = useRef(new Animated.Value(1)).current;
 
     useEffect(() => {
         if (active) {
             Animated.spring(scaleAnim, {
-                toValue: 1.2,
-                friction: 4,
-                tension: 40,
+                toValue: 1.15,
+                friction: 5,
+                tension: 50,
                 useNativeDriver: true,
             }).start();
         } else {
@@ -48,21 +45,21 @@ const AnimatedTabItem = ({ label, icon, active, onPress }) => {
     return (
         <TouchableOpacity
             style={styles.bottomNavItem}
-            activeOpacity={0.9}
+            activeOpacity={0.8}
             onPress={onPress}
         >
             <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
                 <Ionicons
                     name={icon}
-                    size={26}
-                    color={active ? NAV_TEXT_COLORS.active : NAV_COLORS[label]}
+                    size={24}
+                    color={active ? NAV_COLORS.activeIcon : NAV_COLORS.inactiveIcon}
                 />
             </Animated.View>
 
             <Text
                 style={[
                     styles.bottomNavLabel,
-                    { color: active ? NAV_TEXT_COLORS.active : NAV_TEXT_COLORS.inactive },
+                    { color: active ? NAV_COLORS.activeText : NAV_COLORS.inactiveText },
                     active && styles.bottomNavLabelActive,
                 ]}
             >
@@ -77,15 +74,9 @@ export default function BottomNavBar() {
     const route = useRoute();
 
     const activeLabel = SCREEN_TO_NAV_LABEL[route?.name] || 'Breeding';
-
-    // 🔑 දැනට open වෙලා තියෙන screen එකේ params එකේ pet එකක් තිබ්බොත්,
-    // ඒ pet එකම තමයි "current pet" කියලා ගන්නේ. Tab මාරු කරද්දී මේක ඕන
-    // තැනට ම forward කරනවා, එතකොට pet එක වෙනස් වෙන්නේ නෑ.
     const currentPet = route?.params?.pet ?? null;
 
     const handlePress = (tab) => {
-        // Params object එක හැම තැනකටම එකම විදිහට pass කරනවා.
-        // pet එකක් තියෙනවා නම් විතරක් ඇතුළත් කරනවා (නැත්නම් params නෑ).
         const params = currentPet ? { pet: currentPet } : undefined;
 
         if (tab === 'Breeding') return navigation.push('PetDetails', params);
@@ -97,11 +88,11 @@ export default function BottomNavBar() {
 
     return (
         <View style={styles.bottomNavBar}>
-            <AnimatedTabItem label="Breeding" icon="heart-outline" active={activeLabel === 'Breeding'} onPress={() => handlePress('Breeding')} />
-            <AnimatedTabItem label="AI-chat" icon="chatbubble-ellipses-outline" active={activeLabel === 'AI-chat'} onPress={() => handlePress('AI-chat')} />
-            <AnimatedTabItem label="Meal Plan" icon="restaurant-outline" active={activeLabel === 'Meal Plan'} onPress={() => handlePress('Meal Plan')} />
-            <AnimatedTabItem label="Vaccine" icon="medkit-outline" active={activeLabel === 'Vaccine'} onPress={() => handlePress('Vaccine')} />
-            <AnimatedTabItem label="Nearby" icon="location-outline" active={activeLabel === 'Nearby'} onPress={() => handlePress('Nearby')} />
+            <AnimatedTabItem label="Breeding" icon={activeLabel === 'Breeding' ? 'heart' : 'heart-outline'} active={activeLabel === 'Breeding'} onPress={() => handlePress('Breeding')} />
+            <AnimatedTabItem label="AI-chat" icon={activeLabel === 'AI-chat' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'} active={activeLabel === 'AI-chat'} onPress={() => handlePress('AI-chat')} />
+            <AnimatedTabItem label="Meal Plan" icon={activeLabel === 'Meal Plan' ? 'restaurant' : 'restaurant-outline'} active={activeLabel === 'Meal Plan'} onPress={() => handlePress('Meal Plan')} />
+            <AnimatedTabItem label="Vaccine" icon={activeLabel === 'Vaccine' ? 'medkit' : 'medkit-outline'} active={activeLabel === 'Vaccine'} onPress={() => handlePress('Vaccine')} />
+            <AnimatedTabItem label="Nearby" icon={activeLabel === 'Nearby' ? 'location' : 'location-outline'} active={activeLabel === 'Nearby'} onPress={() => handlePress('Nearby')} />
         </View>
     );
 }
@@ -109,22 +100,24 @@ export default function BottomNavBar() {
 const styles = StyleSheet.create({
     bottomNavBar: {
         position: 'absolute',
-        left: 12,
-        right: 12,
-        bottom: 12,
-        height: 72,
-        borderRadius: 24,
-        backgroundColor: '#2A2A2A',
+        left: 16,
+        right: 16,
+        bottom: 16,
+        height: 70,
+        borderRadius: 22,
+        backgroundColor: NAV_COLORS.barBg, // UPDATE: Deep Cream Color background
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-around',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: NAV_COLORS.border,
+        
+        // Soft Shadow
         shadowColor: '#000',
-        shadowOpacity: 0.2,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 6 },
-        elevation: 10,
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 3,
     },
     bottomNavItem: {
         flex: 1,
@@ -133,12 +126,12 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     bottomNavLabel: {
-        marginTop: 5,
+        marginTop: 4,
         fontSize: 10,
         fontWeight: '600',
-        letterSpacing: 0.3,
+        letterSpacing: 0.2,
     },
     bottomNavLabelActive: {
-        fontWeight: '800',
+        fontWeight: '700',
     },
 });
