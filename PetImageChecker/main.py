@@ -6,10 +6,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
+from tensorflow.keras.applications.mobilenet_v2 import (
+    MobileNetV2,
+    decode_predictions,
+    preprocess_input,
+)
 
 try:
     from openai import OpenAI
@@ -49,7 +53,10 @@ class LLMAdvisor:
         if not self.base_url and self.api_key:
             self.base_url = "https://openrouter.ai/api/v1"
 
-        self.model = os.getenv("OPENAI_MODEL", "tencent/hy3:free").strip() or "tencent/hy3:free"
+        self.model = os.getenv("OPENAI_MODEL", "inclusionai/ling-3.0-flash:free").strip() or "inclusionai/ling-3.0-flash:free"
+
+        self.referer = os.getenv("OPENROUTER_HTTP_REFERER", "https://pethub.local").strip()
+        self.title = os.getenv("OPENROUTER_TITLE", "PetHub").strip()
 
         self.enabled = bool(self.api_key and OpenAI is not None)
 
@@ -61,8 +68,8 @@ class LLMAdvisor:
 
             if "openrouter.ai" in self.base_url:
                 client_kwargs["default_headers"] = {
-                    "HTTP-Referer": "https://pethub.local",
-                    "X-Title": "PetHub",
+                    "HTTP-Referer": self.referer,
+                    "X-Title": self.title,
                 }
 
             self._client = OpenAI(**client_kwargs)
@@ -79,13 +86,16 @@ class LLMAdvisor:
         if not self.enabled:
             raise HTTPException(status_code=503, detail="LLM client is not configured.")
 
+        # Strict System Prompt to restrict answers strictly to Pets and PetHub
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a professional veterinary assistant for PetHub. "
-                    "Always explain that this is not a confirmed diagnosis. "
-                    "Give concise, practical advice and include urgent warning signs when relevant."
+                    "You are a specialized AI veterinary assistant and pet-care guide for PetHub. "
+                    "STRICT DOMAIN BOUNDARY: You MUST ONLY answer questions related to pets, animal health, veterinary guidance, pet nutrition, pet behavior, and PetHub platform services. "
+                    "If the user asks about ANY unrelated topic (such as programming, math, science, general history, news, coding, non-pet topics, etc.), "
+                    "you MUST politely decline to answer and state that you are strictly programmed to assist with pet-related inquiries only. "
+                    "Always mention that your suggestions do not constitute a formal diagnosis and advise consulting a qualified veterinarian for urgent matters."
                 ),
             },
         ]
@@ -110,10 +120,13 @@ class LLMAdvisor:
             )
             assistant_message = response.choices[0].message if response.choices else None
             answer = assistant_message.content if assistant_message else ""
+
+            reasoning_details = getattr(assistant_message, "reasoning_details", None) if assistant_message else None
+
             return {
                 "answer": answer or "No response returned by the model.",
                 "model": self.model,
-                "reasoning_details": getattr(assistant_message, "reasoning_details", None) if assistant_message else None,
+                "reasoning_details": reasoning_details,
             }
         except Exception as exc:
             logger.exception("LLM request failed")
@@ -143,8 +156,6 @@ BREEDS = {
     ],
 }
 
-# Aliases used ONLY to pick a nicer/more specific breed label once pet type is
-# already known. These no longer decide whether something IS a dog/cat.
 BREED_ALIASES = {
     "Dog": {
         "German Shepherd": ["german shepherd"],
@@ -159,35 +170,18 @@ BREED_ALIASES = {
     "Cat": {
         "Persian Cat": ["persian cat"],
         "Siamese Cat": ["siamese cat"],
-        # NOTE: ImageNet (the dataset MobileNetV2 is trained on) has no
-        # "British Shorthair" or "Bengal Cat" classes at all, so those two
-        # breeds can never be auto-detected from the image classifier alone.
-        # They stay in the options list for the user to pick manually.
     },
 }
 
-# ---------------------------------------------------------------------------
-# Robust pet-type detection using MobileNetV2's actual ImageNet class indices
-# instead of fragile substring matching on label text. This is the main fix:
-# ImageNet has ~120 dog breed classes and 5 cat classes, but the old code only
-# checked for a handful of keywords, so most real dog/cat photos were being
-# reported as "No cat or dog detected" simply because their specific breed
-# name wasn't in the keyword list.
-# ---------------------------------------------------------------------------
-# ImageNet (ILSVRC) class indices 151-268 are all dog breeds (Chihuahua ... Mexican hairless).
 DOG_CLASS_INDEX_RANGE = range(151, 269)
-# ImageNet class indices 281-285 are the cat classes.
 CAT_CLASS_INDEX_RANGE = range(281, 286)
 
 
 def _normalize_label(label: str) -> str:
-    # Replace BOTH underscores and hyphens (ImageNet labels use both,
-    # e.g. "Shih-Tzu", "German_shepherd") so alias matching doesn't miss them.
     return label.lower().replace("_", " ").replace("-", " ").strip()
 
 
 def _detect_pet_type(indexed_predictions):
-    """indexed_predictions: list of (class_index, class_id, label, score)."""
     for class_index, _, _, _ in indexed_predictions:
         if class_index in CAT_CLASS_INDEX_RANGE:
             return "Cat"
@@ -205,7 +199,6 @@ def _suggest_breed(pet_type: str, indexed_predictions):
             if any(alias in normalized for alias in aliases):
                 return breed_name
 
-    # No specific alias matched -> fall back to the generic "Local" option.
     return BREEDS[pet_type][0]
 
 
@@ -222,6 +215,7 @@ def _prepare_image(contents: bytes) -> np.ndarray:
     image = np.expand_dims(image, axis=0)
     return image
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model
@@ -229,14 +223,14 @@ async def lifespan(app: FastAPI):
     model = MobileNetV2(weights="imagenet")
     logger.info("MobileNetV2 model loaded successfully.")
     yield
-    # Clean up if needed
     model = None
+
 
 app = FastAPI(
     title="Pet Image Verification API",
     description="An API to detect whether an uploaded image is a dog or cat and suggest a likely breed.",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
@@ -250,12 +244,9 @@ async def chat_with_ai(payload: ChatRequest):
         reasoning_details=result.get("reasoning_details"),
     )
 
+
 @app.post("/verify-pet-image")
 async def verify_pet_image(file: UploadFile = File(...)):
-    """
-    Upload an image file and detect whether it is a dog or a cat.
-    Returns a pet type and a best-effort breed suggestion.
-    """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File provided is not an image.")
 
@@ -267,13 +258,10 @@ async def verify_pet_image(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail="Model is not loaded.")
 
         image = _prepare_image(contents)
-        predictions = model.predict(image, verbose=0)  # shape (1, 1000)
+        predictions = model.predict(image, verbose=0)
 
-        # Get the top-5 class indices (0-999) sorted by confidence, so we can
-        # check them against the known ImageNet dog/cat index ranges.
         probs = predictions[0]
         top_indices = probs.argsort()[::-1][:5]
-
         decoded_predictions = decode_predictions(predictions, top=5)[0]
 
         indexed_predictions = [
@@ -313,9 +301,9 @@ async def verify_pet_image(file: UploadFile = File(...)):
         logger.error(f"Error processing image: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
 
+
 @app.get("/health")
 async def health_check():
-    """Simple healthcheck endpoint."""
     return {
         "status": "ok",
         "llm_enabled": advisor.enabled,
