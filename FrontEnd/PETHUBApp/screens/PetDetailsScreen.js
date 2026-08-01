@@ -16,7 +16,6 @@ import {
     confirmMatchRequest,
     getConfirmedMatches,
     rejectMatchRequest,
-    removeMatch,
 } from '../services/matchApi';
 import BottomNavBar from './BottomNavBar';
 import MenuSide from './menuside';
@@ -31,7 +30,6 @@ export default function PetDetailsScreen() {
     const [sendingConnectPetId, setSendingConnectPetId] = useState(null);
     const [confirmingMatchId, setConfirmingMatchId] = useState(null);
     const [deletingMatchId, setDeletingMatchId] = useState(null);
-    const [removingMatchId, setRemovingMatchId] = useState(null);
     const [selectedMyPetId, setSelectedMyPetId] = useState(null);
     const [drawerVisible, setDrawerVisible] = useState(false);
 
@@ -46,7 +44,11 @@ export default function PetDetailsScreen() {
 
     const goToScreen = (screenName) => {
         closeDrawer();
-        navigation.navigate(screenName);
+        if (screenName === 'PetProfile') {
+            navigation.navigate('PetProfile', { pet: selectedMyPet, isOwnPet: true });
+        } else {
+            navigation.navigate(screenName);
+        }
     };
 
     const isViewedPetMine = useMemo(
@@ -100,17 +102,43 @@ export default function PetDetailsScreen() {
         [myPets, selectedMyPetId]
     );
 
+    // ─── Incoming Pending Requests filter (තමන්ට ලැබුණු ඒවා විතරයි) ──────────
+    const incomingPendingRequests = useMemo(() => {
+        return pendingRequests.filter((req) => req?.targetPetId === selectedMyPetId);
+    }, [pendingRequests, selectedMyPetId]);
+
+    // ─── Best Match Logic with Age Ranges ───────────────────────────
     const isBestMatch = (candidatePet) => {
-        if (!selectedMyPet) return false;
+        if (!selectedMyPet || !candidatePet) return false;
+
         const sameBreed =
             selectedMyPet?.breed &&
             candidatePet?.breed &&
-            selectedMyPet.breed.toLowerCase() === candidatePet.breed.toLowerCase();
+            selectedMyPet.breed.trim().toLowerCase() === candidatePet.breed.trim().toLowerCase();
+
         const oppositeGender =
             selectedMyPet?.gender &&
             candidatePet?.gender &&
-            selectedMyPet.gender.toLowerCase() !== candidatePet.gender.toLowerCase();
-        return sameBreed && oppositeGender;
+            selectedMyPet.gender.trim().toLowerCase() !== candidatePet.gender.trim().toLowerCase();
+
+        if (!sameBreed || !oppositeGender) return false;
+
+        const isOptimalAge = (pet) => {
+            const age = parseFloat(pet?.age);
+            if (isNaN(age)) return false;
+
+            const species = (pet?.species || pet?.category || pet?.type || '').toLowerCase();
+
+            if (species.includes('dog')) {
+                return age >= 1.6 && age <= 7.0;
+            } else if (species.includes('cat')) {
+                return age >= 1.4 && age <= 8.0;
+            }
+
+            return false;
+        };
+
+        return isOptimalAge(selectedMyPet) && isOptimalAge(candidatePet);
     };
 
     const fetchData = async () => {
@@ -150,7 +178,7 @@ export default function PetDetailsScreen() {
             setPendingRequests(Array.isArray(pending) ? pending : []);
             setConfirmedMatches(Array.isArray(confirmed) ? confirmed : []);
 
-            if (effectivePetId !== selectedMyPetId) {
+            if (effectivePetId && effectivePetId !== selectedMyPetId) {
                 setSelectedMyPetId(effectivePetId);
             }
 
@@ -164,8 +192,9 @@ export default function PetDetailsScreen() {
 
     useEffect(() => {
         fetchData();
-    }, [user?.email, viewedPet?.id, selectedMyPetId]);
+    }, [user?.email, viewedPet?.id]);
 
+    // ─── CONNECT HANDLER ───
     const handleConnect = async (targetPet) => {
         if (!user?.email) { Alert.alert('Login required'); return; }
         if (!myPets.length) { Alert.alert('Add your pet first'); return; }
@@ -176,9 +205,21 @@ export default function PetDetailsScreen() {
         const result = await sendMatchRequest(user.email, selectedMyPet.id, targetPet.id);
         setSendingConnectPetId(null);
 
-        if (!result.success) { Alert.alert(result.message); return; }
-        Alert.alert('Request sent');
-        fetchData();
+        if (!result.success) { 
+            Alert.alert(result.message); 
+            return; 
+        }
+
+        Alert.alert('Success', 'Match request sent successfully!');
+
+        setPendingRequests((prev) => [
+            ...prev,
+            {
+                id: result?.data?.id || Date.now(),
+                requesterPetId: selectedMyPet.id,
+                targetPetId: targetPet.id,
+            }
+        ]);
     };
 
     const handleConfirm = async (item) => {
@@ -199,75 +240,56 @@ export default function PetDetailsScreen() {
         fetchData();
     };
 
-    const handleRemoveMatch = (item) => {
-        Alert.alert(
-            'Remove Match',
-            'Are you sure you want to remove this match?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Remove',
-                    style: 'destructive',
-                    onPress: async () => {
-                        setRemovingMatchId(item.id);
-                        const result = await removeMatch(item.id, user.email);
-                        setRemovingMatchId(null);
-                        if (!result.success) { Alert.alert(result.message); return; }
-                        Alert.alert('Match removed');
-                        fetchData();
-                    },
-                },
-            ]
-        );
-    };
-
     // ─── RENDER: Breeding Match Card ─────────────────────────────────────────
     const renderMatch = ({ item }) => {
         const bestMatch = isBestMatch(item);
         return (
-            <View style={[styles.matchCard, bestMatch && styles.matchCardBest]}>
-                <View>
-                    <Image source={{ uri: getPetImageUrl(item?.id) }} style={styles.matchImage} />
-                    {bestMatch && (
-                        <View style={styles.bestMatchBadge}>
-                            <Text style={styles.bestMatchBadgeText}>Best Match</Text>
-                        </View>
-                    )}
-                </View>
-                <View style={styles.matchInfoOverlay}>
-                    <Text style={styles.matchName}>{item?.name}</Text>
-                    <View style={styles.matchMetaRow}>
-                        {item?.gender && (
-                            <View style={styles.metaPill}>
-                                <Text style={styles.metaPillText}>
-                                    {item.gender.toLowerCase() === 'male' ? '♂' : '♀'} {item.gender}
-                                </Text>
-                            </View>
-                        )}
-                        {item?.breed && (
-                            <View style={[styles.metaPill, styles.metaPillBreed]}>
-                                <Text style={styles.metaPillText} numberOfLines={1}>{item.breed}</Text>
+            <View style={[styles.matchCardFrame, bestMatch && styles.matchCardFrameBest]}>
+                <View style={[styles.matchCard, bestMatch && styles.matchCardBest]}>
+                    <View>
+                        <Image source={{ uri: getPetImageUrl(item?.id) }} style={styles.matchImage} />
+                        {bestMatch && (
+                            <View style={styles.bestMatchBadge}>
+                                <Text style={styles.bestMatchBadgeText}>✨ Best Match</Text>
                             </View>
                         )}
                     </View>
-                    <Text style={styles.matchOwner} numberOfLines={1}>
-                        {item?.user?.name || item?.user?.email}
-                    </Text>
+                    <View style={styles.matchInfoOverlay}>
+                        <Text style={styles.matchName} numberOfLines={1}>{item?.name}</Text>
+                        <View style={styles.matchMetaRow}>
+                            {item?.gender && (
+                                <View style={styles.metaPill}>
+                                    <Text style={styles.metaPillText}>
+                                        {item.gender.toLowerCase() === 'male' ? '♂' : '♀'} {item.gender}
+                                    </Text>
+                                </View>
+                            )}
+                            {item?.breed && (
+                                <View style={[styles.metaPill, styles.metaPillBreed]}>
+                                    <Text style={styles.metaPillText} numberOfLines={1}>{item.breed}</Text>
+                                </View>
+                            )}
+                        </View>
+                        <Text style={styles.matchOwner} numberOfLines={1}>
+                            👤 {item?.user?.name || item?.user?.email}
+                        </Text>
+                    </View>
+                    <TouchableOpacity
+                        style={[styles.connectBtn, bestMatch && styles.connectBtnBest]}
+                        onPress={() => handleConnect(item)}
+                        activeOpacity={0.85}
+                        disabled={sendingConnectPetId === item?.id}
+                    >
+                        <Text style={styles.connectBtnText}>
+                            {sendingConnectPetId === item?.id ? '...' : '🐾 Connect'}
+                        </Text>
+                    </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                    style={[styles.connectBtn, bestMatch && styles.connectBtnBest]}
-                    onPress={() => handleConnect(item)}
-                    activeOpacity={0.85}
-                >
-                    <Text style={styles.connectBtnText}>
-                        {sendingConnectPetId === item?.id ? '...' : '🐾 Connect'}
-                    </Text>
-                </TouchableOpacity>
             </View>
         );
     };
 
-    // ─── RENDER: Pending Card ────────────────────────────────────────────────
+    // ─── RENDER: Pending Card (Incoming Requests) ────────────────────────────
     const renderPending = ({ item }) => (
         <View style={styles.pendingCard}>
             <View style={styles.pendingLeft}>
@@ -303,13 +325,29 @@ export default function PetDetailsScreen() {
         </View>
     );
 
-    // ─── RENDER: Confirmed Match Card ────────────────────────────────────────
+    // ─── RENDER: Confirmed Match Card (View Profile එක සහිතයි) ─────────────────
     const renderConfirmed = ({ item }) => {
-        const pairedPet = item?.requesterPetId === selectedMyPetId
-            ? { id: item?.targetPetId, name: item?.targetPetName, owner: item?.targetOwnerName || item?.targetOwnerEmail }
-            : { id: item?.requesterPetId, name: item?.requesterPetName, owner: item?.requesterOwnerName || item?.requesterOwnerEmail };
+        // 1. අනික් Pet ගේ ID එක සොයාගැනීම
+        const pairedPetId = item?.requesterPetId === selectedMyPetId
+            ? item?.targetPetId
+            : item?.requesterPetId;
 
-        const isRemoving = removingMatchId === item?.id;
+        // 2. All Pets (pets) ලැයිස්තුවෙන් අදාළ සම්පූර්ණ pet object එක ලබාගැනීම
+        const fullPetDetails = pets.find((p) => p?.id === pairedPetId);
+
+        // 3. full pet details නැතිවිට match details මගින් fallback object එකක් සැකසීම
+        const pairedPet = fullPetDetails || { 
+            id: pairedPetId, 
+            name: item?.requesterPetId === selectedMyPetId ? item?.targetPetName : item?.requesterPetName, 
+            user: {
+                name: item?.requesterPetId === selectedMyPetId ? item?.targetOwnerName : item?.requesterOwnerName,
+                email: item?.requesterPetId === selectedMyPetId ? item?.targetOwnerEmail : item?.requesterOwnerEmail,
+            },
+            species: item?.requesterPetId === selectedMyPetId ? item?.targetPetSpecies : item?.requesterPetSpecies,
+            breed: item?.requesterPetId === selectedMyPetId ? item?.targetPetBreed : item?.requesterPetBreed,
+            gender: item?.requesterPetId === selectedMyPetId ? item?.targetPetGender : item?.requesterPetGender,
+            age: item?.requesterPetId === selectedMyPetId ? item?.targetPetAge : item?.requesterPetAge,
+        };
 
         return (
             <View style={styles.confirmedCard}>
@@ -319,16 +357,16 @@ export default function PetDetailsScreen() {
                         <Text style={styles.confirmedBadgeText}>✓ Connected</Text>
                     </View>
                     <Text style={styles.confirmedPetName}>{pairedPet?.name}</Text>
-                    <Text style={styles.confirmedOwner}>👤 {pairedPet?.owner}</Text>
+                    <Text style={styles.confirmedOwner}>
+                        👤 {pairedPet?.user?.name || pairedPet?.user?.email || pairedPet?.owner}
+                    </Text>
+                    
                     <TouchableOpacity
-                        style={styles.removeBtn}
-                        onPress={() => handleRemoveMatch(item)}
+                        style={styles.viewProfileBtn}
+                        onPress={() => navigation.navigate('PetProfile', { pet: pairedPet, isOwnPet: false })}
                         activeOpacity={0.85}
-                        disabled={isRemoving}
                     >
-                        <Text style={styles.removeBtnText}>
-                            {isRemoving ? 'Removing...' : '✕ Remove Match'}
-                        </Text>
+                        <Text style={styles.viewProfileBtnText}>👤 View Profile</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -353,10 +391,8 @@ export default function PetDetailsScreen() {
     // ─── LIST HEADER ─────────────────────────────────────────────────────────
     const ListHeader = () => (
         <View>
-            {/* ── Hero Welcome Banner with Integrated Cutout Menu ── */}
+            {/* Hero Welcome Banner */}
             <View style={styles.heroBanner}>
-                
-                {/* Left Cutout Design for Side Menu */}
                 <View style={styles.cutoutContainer}>
                     <TouchableOpacity
                         style={styles.drawerToggle}
@@ -375,7 +411,6 @@ export default function PetDetailsScreen() {
                     <Text style={styles.heroSubtitle}>Find the perfect breeding partner</Text>
                 </View>
 
-                {/* ── Pet Avatar ── */}
                 <View style={styles.heroPaw}>
                     {selectedMyPet ? (
                         <Image
@@ -388,7 +423,7 @@ export default function PetDetailsScreen() {
                 </View>
             </View>
 
-            {/* ── Featured Profile ── */}
+            {/* Featured Profile */}
             {featuredTargetPet && (
                 <>
                     <SectionHeader title="Featured Profile" />
@@ -419,7 +454,7 @@ export default function PetDetailsScreen() {
                 </>
             )}
 
-            {/* ── Breeding Match ── */}
+            {/* Breeding Match */}
             <SectionHeader title="Breeding Match" count={candidatePets.length} />
             {candidatePets.length === 0 ? (
                 <View style={styles.emptyBox}>
@@ -437,24 +472,21 @@ export default function PetDetailsScreen() {
                 />
             )}
 
-            {/* ── Pending ── */}
-            <SectionHeader title="Pending Requests" count={pendingRequests.length} />
-            {pendingRequests.length === 0 ? (
-                <View style={styles.emptyBox}>
-                    <Text style={styles.emptyIcon}>📭</Text>
-                    <Text style={styles.emptyText}>No pending requests.</Text>
-                </View>
-            ) : (
-                <FlatList
-                    data={pendingRequests}
-                    renderItem={renderPending}
-                    keyExtractor={(item, i) => item?.id?.toString() || i.toString()}
-                    scrollEnabled={false}
-                    contentContainerStyle={{ paddingHorizontal: 14 }}
-                />
+            {/* Pending Requests */}
+            {incomingPendingRequests.length > 0 && (
+                <>
+                    <SectionHeader title="Pending Requests" count={incomingPendingRequests.length} />
+                    <FlatList
+                        data={incomingPendingRequests}
+                        renderItem={renderPending}
+                        keyExtractor={(item, i) => item?.id?.toString() || i.toString()}
+                        scrollEnabled={false}
+                        contentContainerStyle={{ paddingHorizontal: 14 }}
+                    />
+                </>
             )}
 
-            {/* ── Confirmed ── */}
+            {/* Confirmed */}
             <SectionHeader title="Confirmed Matches" count={confirmedMatches.length} />
             {confirmedMatches.length === 0 && (
                 <View style={styles.emptyBox}>
@@ -492,6 +524,7 @@ export default function PetDetailsScreen() {
                 onClose={closeDrawer}
                 onNavigate={goToScreen}
                 onLogout={handleLogout}
+                selectedMyPet={selectedMyPet}
             />
 
             <FlatList
@@ -511,24 +544,24 @@ export default function PetDetailsScreen() {
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
 const COLORS = {
-    bg: '#bbbab8',
+    bg: '#f6f1e8',            
     card: '#FFFFFF',
     primary: '#a75c43',
     primaryLight: '#F2E8E3',
     accent: '#3D6B5E',
     accentLight: '#E2EDE9',
-    dark: '#000000',
-    mid: '#6B6560',
-    light: '#B8B2AC',
+    dark: '#111827',          
+    mid: '#6B7280',
+    light: '#9CA3AF',
     confirmed: '#3D6B5E',
     pending: '#B8860B',
     pendingBg: '#FFF8E7',
-    danger: '#86817f',
-    dangerLight: '#FDECEA',
+    danger: '#EF4444',        
+    dangerLight: '#FEE2E2',
     bestMatch: '#7C3AED',
     bestMatchBg: '#EDE9FE',
     white: '#FFFFFF',
-    shadow: 'rgba(28, 25, 23, 0.10)',
+    shadow: 'rgba(0, 0, 0, 0.04)',
 };
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
@@ -537,73 +570,34 @@ const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: COLORS.bg },
 
     bgOrbTopRight: {
-        position: 'absolute',
-        top: -55,
-        right: -40,
-        width: 200,
-        height: 200,
-        borderRadius: 100,
-        backgroundColor: 'rgba(255,255,255,0.38)',
+        position: 'absolute', top: -55, right: -40, width: 200, height: 200,
+        borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.38)',
     },
     bgOrbBottomLeft: {
-        position: 'absolute',
-        left: -75,
-        bottom: 130,
-        width: 240,
-        height: 240,
-        borderRadius: 120,
-        backgroundColor: 'rgba(139,94,60,0.08)',
+        position: 'absolute', left: -75, bottom: 130, width: 240, height: 240,
+        borderRadius: 120, backgroundColor: 'rgba(139,94,60,0.08)',
     },
     bgSoftBand: {
-        position: 'absolute',
-        top: 190,
-        left: 0,
-        right: 0,
-        height: 120,
+        position: 'absolute', top: 190, left: 0, right: 0, height: 120,
         backgroundColor: 'rgba(255,255,255,0.2)',
     },
     bgHaloCenter: {
-        position: 'absolute',
-        top: 250,
-        left: '15%',
-        width: 260,
-        height: 260,
-        borderRadius: 130,
-        backgroundColor: 'rgba(255,255,255,0.16)',
+        position: 'absolute', top: 250, left: '15%', width: 260, height: 260,
+        borderRadius: 130, backgroundColor: 'rgba(255,255,255,0.16)',
     },
     bgPetalLeft: {
-        position: 'absolute',
-        top: 90,
-        left: -30,
-        width: 120,
-        height: 220,
-        borderRadius: 80,
-        transform: [{ rotate: '-18deg' }],
-        backgroundColor: 'rgba(194,96,63,0.08)',
+        position: 'absolute', top: 90, left: -30, width: 120, height: 220,
+        borderRadius: 80, transform: [{ rotate: '-18deg' }], backgroundColor: 'rgba(194,96,63,0.08)',
     },
     bgPetalRight: {
-        position: 'absolute',
-        top: 320,
-        right: -25,
-        width: 110,
-        height: 200,
-        borderRadius: 70,
-        transform: [{ rotate: '15deg' }],
-        backgroundColor: 'rgba(61,107,94,0.08)',
+        position: 'absolute', top: 320, right: -25, width: 110, height: 200,
+        borderRadius: 70, transform: [{ rotate: '15deg' }], backgroundColor: 'rgba(61,107,94,0.08)',
     },
     bgPawMarkOne: {
-        position: 'absolute',
-        top: 120,
-        right: 26,
-        fontSize: 42,
-        color: 'rgba(139,94,60,0.14)',
+        position: 'absolute', top: 120, right: 26, fontSize: 42, color: 'rgba(139,94,60,0.14)',
     },
     bgPawMarkTwo: {
-        position: 'absolute',
-        bottom: 155,
-        left: 22,
-        fontSize: 48,
-        color: 'rgba(61,107,94,0.12)',
+        position: 'absolute', bottom: 155, left: 22, fontSize: 48, color: 'rgba(61,107,94,0.12)',
         transform: [{ rotate: '-15deg' }],
     },
 
@@ -613,218 +607,140 @@ const styles = StyleSheet.create({
     },
     loadingText: { color: COLORS.mid, fontSize: 15, fontWeight: '500' },
 
-    // ── Hero Banner (Modifed for Cutout Effect) ──
-    // ── Hero Banner (Modifed for Cutout Effect) ──
-    // ── Hero Banner (Slimmer & Adjusted for Floating Image) ──
     heroBanner: {
-        flexDirection: 'row', 
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        backgroundColor: COLORS.dark,
-        marginRight: 18, 
-        marginLeft: 0, 
-        marginTop: 50, // Image එක උඩට නෙරන නිසා marginTop පොඩ්ඩක් වැඩි කලා
-        marginBottom: 15, // යට තියෙන ඒවට ඉඩ දෙන්න marginBottom වැඩි කලා
-        borderTopRightRadius: 22,
-        borderBottomRightRadius: 22,
-        paddingVertical: 10, // Box එක අනවශ්‍ය විදියට මහත වෙන එක අඩු කලා (කලින් 20/24 තිබ්බේ)
-        paddingRight: 16,
-        paddingLeft: 0, 
-        position: 'relative', // Floating effect එකට අත්‍යවශ්‍යයි
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        backgroundColor: COLORS.dark, marginRight: 18, marginLeft: 0, marginTop: 50, marginBottom: 15,
+        borderTopRightRadius: 22, borderBottomRightRadius: 22, paddingVertical: 10, paddingRight: 16,
+        paddingLeft: 0, position: 'relative',
     },
     
-    // Cutout Container
     cutoutContainer: {
-        backgroundColor: COLORS.bg, 
-        width: 55,
-        height: 64,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderTopRightRadius: 32,    
-        borderBottomRightRadius: 32, 
-        marginRight: 12,
+        backgroundColor: COLORS.bg, width: 55, height: 64, justifyContent: 'center',
+        alignItems: 'center', borderTopRightRadius: 32, borderBottomRightRadius: 32, marginRight: 12,
     },
 
     drawerToggle: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#111111', 
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        shadowOffset: { width: 1, height: 2 },
-        elevation: 4,
+        width: 40, height: 40, borderRadius: 20, backgroundColor: '#111111', 
+        alignItems: 'center', justifyContent: 'center', shadowColor: '#000',
+        shadowOpacity: 0.25, shadowRadius: 4, shadowOffset: { width: 1, height: 2 }, elevation: 4,
     },
 
-    heroContent: { 
-        flex: 1, 
-        paddingRight: 95, // Image එක text උඩින් යන්නේ නැති වෙන්න දකුණු පැත්තෙන් ඉඩක් තැබුවා
-        justifyContent: 'center',
-    },
+    heroContent: { flex: 1, paddingRight: 95, justifyContent: 'center' },
     heroGreeting: { color: COLORS.light, fontSize: 13, fontWeight: '500', marginBottom: 2 },
     heroTitle: { color: COLORS.white, fontSize: 21, fontWeight: '800', lineHeight: 26, marginBottom: 2 },
     heroSubtitle: { color: '#9E9892', fontSize: 12 },
     
-    // ── Pet Avatar Position Adjustments ──
-    heroPaw: { 
-        position: 'absolute', // Box එක ඇතුලේ හිර නොවී එලියට පනින්න absolute කලා
-        right: 14,             // දකුණු කෙළවරේ පිහිටීම
-        top: -15,            // Box එකෙන් උඩට 15px ක් පැනලා ඉන්න (Floating Effect)
-        bottom: -15,         // Box එකෙන් යටටත් 15px ක් පැනලා ඉන්න
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-
+    heroPaw: { position: 'absolute', right: 14, top: -15, bottom: -15, justifyContent: 'center', alignItems: 'center' },
     heroPetAvatar: {
-        width: 87,          // Image එක 100px ලෙස ලොකුවට තැබුවා
-        height: 87, 
-        borderRadius: 45,    // පරිපූර්ණ රවුමක් ගන්න හරියටම width එකෙන් අඩක් (50) දුන්නා
-        borderWidth: 2.0,    
-        borderColor: COLORS.primary, 
-        backgroundColor: COLORS.card,
-        // Image එක කැපිලා පේන්න පොඩි shadow එකක්
-        shadowColor: '#000',
-        shadowOpacity: 0.2,
-        shadowRadius: 5,
+        width: 87, height: 87, borderRadius: 45, borderWidth: 2.0, borderColor: COLORS.primary, 
+        backgroundColor: COLORS.card, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 5,
         shadowOffset: { width: 0, height: 3 },
     },
 
-    // ── Section Header ──
     sectionHeader: { marginHorizontal: 14, marginTop: 22, marginBottom: 10 },
     sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
     sectionTitle: { fontSize: 17, fontWeight: '700', color: COLORS.dark },
     sectionDivider: { height: 1.5, backgroundColor: '#E8E3DE', borderRadius: 2 },
-    countBadge: {
-        backgroundColor: COLORS.primary, borderRadius: 10,
-        paddingHorizontal: 7, paddingVertical: 2,
-    },
+    countBadge: { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
     countBadgeText: { color: COLORS.white, fontSize: 11, fontWeight: '700' },
 
-    // ── Empty Box ──
     emptyBox: {
-        alignItems: 'center', paddingVertical: 20,
-        marginHorizontal: 14, backgroundColor: COLORS.card,
-        borderRadius: 16, marginBottom: 8,
-        borderWidth: 1.5, borderColor: '#EDE8E3', borderStyle: 'dashed',
+        alignItems: 'center', paddingVertical: 20, marginHorizontal: 14, backgroundColor: COLORS.card,
+        borderRadius: 16, marginBottom: 8, borderWidth: 1.5, borderColor: '#EDE8E3', borderStyle: 'dashed',
     },
     emptyIcon: { fontSize: 28, marginBottom: 6 },
     emptyText: { color: COLORS.light, fontSize: 13, fontWeight: '500' },
 
-    // ── Featured Card ──
-    featureCard: {
-        marginHorizontal: 14, marginBottom: 8,
-        borderRadius: 22, overflow: 'hidden', height: 300,
-    },
+    featureCard: { marginHorizontal: 14, marginBottom: 8, borderRadius: 22, overflow: 'hidden', height: 300 },
     featureImage: { width: '100%', height: '100%', position: 'absolute' },
-    featureOverlay: {
-        flex: 1, justifyContent: 'flex-end', padding: 20,
-        backgroundColor: 'rgba(28,25,23,0.55)',
-    },
-    featureTag: {
-        alignSelf: 'flex-start', backgroundColor: '#F7CB45',
-        borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 10,
-    },
+    featureOverlay: { flex: 1, justifyContent: 'flex-end', padding: 20, backgroundColor: 'rgba(28,25,23,0.55)' },
+    featureTag: { alignSelf: 'flex-start', backgroundColor: '#F7CB45', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 10 },
     featureTagText: { color: COLORS.dark, fontWeight: '700', fontSize: 12 },
     featureName: { color: COLORS.white, fontSize: 24, fontWeight: '800' },
     featureOwner: { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 2, marginBottom: 14 },
-    featureBtn: {
-        backgroundColor: COLORS.primary, borderRadius: 14,
-        paddingVertical: 12, alignItems: 'center',
-    },
+    featureBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
     featureBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 15 },
 
-    // ── Match Card ──
+    matchCardFrame: {
+        marginRight: 14,
+        padding: 5,                  
+        borderRadius: 22,
+        backgroundColor: '#FFFFFF',  
+        borderWidth: 1,
+        borderColor: '#E1D9CD',      
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
+        elevation: 3,
+    },
+    matchCardFrameBest: {
+        borderColor: COLORS.bestMatch, 
+        borderWidth: 1.5,
+        shadowColor: COLORS.bestMatch,
+        shadowOpacity: 0.1,
+        elevation: 4,
+    },
     matchCard: {
-        width: 155, marginRight: 12,
+        width: 150,
         backgroundColor: COLORS.card,
-        borderRadius: 18, overflow: 'hidden',
-        borderWidth: 1, borderColor: '#EDE8E3',
+        borderRadius: 16, 
+        overflow: 'hidden',
     },
-    matchCardBest: {
-        borderWidth: 2.5,
-        borderColor: COLORS.bestMatch,
-    },
-    matchImage: { width: '100%', height: 120 },
+    matchCardBest: {},
+    matchImage: { width: '100%', height: 115, borderRadius: 12 },
     bestMatchBadge: {
         position: 'absolute', top: 8, left: 6,
-        backgroundColor: COLORS.bestMatch,
-        borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3,
+        backgroundColor: COLORS.bestMatch, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3,
     },
     bestMatchBadgeText: { color: COLORS.white, fontSize: 10, fontWeight: '800' },
-    matchInfoOverlay: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4 },
+    matchInfoOverlay: { paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
     matchName: { fontWeight: '700', fontSize: 14, color: COLORS.dark },
     matchMetaRow: { flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap' },
-    metaPill: {
-        backgroundColor: COLORS.primaryLight,
-        borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
-    },
+    metaPill: { backgroundColor: COLORS.primaryLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
     metaPillBreed: { backgroundColor: COLORS.accentLight },
     metaPillText: { fontSize: 10, color: COLORS.dark, fontWeight: '600' },
-    matchOwner: { fontSize: 11, color: COLORS.mid, marginTop: 4 },
-    connectBtn: {
-        margin: 8, backgroundColor: COLORS.primary,
-        borderRadius: 10, paddingVertical: 8, alignItems: 'center',
-    },
+    matchOwner: { fontSize: 11, color: COLORS.mid, marginTop: 5 },
+    connectBtn: { margin: 8, backgroundColor: COLORS.primary, borderRadius: 10, paddingVertical: 8, alignItems: 'center' },
     connectBtnBest: { backgroundColor: COLORS.bestMatch },
     connectBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 13 },
 
-    // ── Pending Card ──
     pendingCard: {
-        flexDirection: 'row', backgroundColor: COLORS.card,
-        borderRadius: 18, padding: 14, marginBottom: 10,
-        borderWidth: 1, borderColor: '#EDE8E3',
-        shadowColor: COLORS.shadow,
-        shadowOffset: { width: 0, height: 2 },
+        flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: 18, padding: 14, marginBottom: 10,
+        borderWidth: 1, borderColor: '#EDE8E3', shadowColor: COLORS.shadow, shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 1, shadowRadius: 8, elevation: 2,
     },
     pendingLeft: { alignItems: 'center', marginRight: 12 },
     pendingImage: { width: 58, height: 58, borderRadius: 29 },
-    pendingBadge: {
-        backgroundColor: COLORS.pendingBg,
-        borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginTop: 5,
-    },
+    pendingBadge: { backgroundColor: COLORS.pendingBg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginTop: 5 },
     pendingBadgeText: { color: COLORS.pending, fontSize: 10, fontWeight: '700' },
     pendingInfo: { flex: 1 },
     pendingTitle: { fontSize: 15, fontWeight: '700', color: COLORS.dark },
     pendingSubTitle: { fontSize: 12, color: COLORS.mid, marginTop: 2, marginBottom: 6 },
     buttonRow: { flexDirection: 'row', gap: 8 },
-    confirmBtn: {
-        flex: 1, backgroundColor: COLORS.accent,
-        borderRadius: 10, paddingVertical: 8, alignItems: 'center',
-    },
+    confirmBtn: { flex: 1, backgroundColor: COLORS.accent, borderRadius: 10, paddingVertical: 8, alignItems: 'center' },
     confirmBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 13 },
-    deleteBtn: {
-        flex: 1, backgroundColor: COLORS.dangerLight,
-        borderRadius: 10, paddingVertical: 8, alignItems: 'center',
-        borderWidth: 1, borderColor: COLORS.primary,
-    },
+    deleteBtn: { flex: 1, backgroundColor: COLORS.dangerLight, borderRadius: 10, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary },
     deleteBtnText: { color: COLORS.danger, fontWeight: '700', fontSize: 13 },
 
-    // ── Confirmed Card ──
-    confirmedCard: {
-        marginHorizontal: 14, marginBottom: 14,
-        borderRadius: 22, overflow: 'hidden', height: 260,
-    },
+    confirmedCard: { marginHorizontal: 14, marginBottom: 14, borderRadius: 22, overflow: 'hidden', height: 260 },
     confirmedImage: { width: '100%', height: '100%', position: 'absolute' },
-    confirmedOverlay: {
-        flex: 1, justifyContent: 'flex-end', padding: 18,
-    },
-    confirmedBadge: {
-        alignSelf: 'flex-start', backgroundColor: COLORS.accent,
-        borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8,
-    },
+    confirmedOverlay: { flex: 1, justifyContent: 'flex-end', padding: 18, backgroundColor: 'rgba(0,0,0,0.35)' },
+    confirmedBadge: { alignSelf: 'flex-start', backgroundColor: COLORS.accent, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8 },
     confirmedBadgeText: { color: COLORS.white, fontSize: 11, fontWeight: '700' },
     confirmedPetName: { color: COLORS.white, fontSize: 20, fontWeight: '800' },
     confirmedOwner: { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 3, marginBottom: 12 },
 
-    // ── Remove Button ──
-    removeBtn: {
-        backgroundColor: 'rgba(194,96,63,0.18)',
-        borderRadius: 10, paddingVertical: 9, alignItems: 'center',
-        borderWidth: 1, borderColor: 'rgba(194,96,63,0.5)',
+    viewProfileBtn: { 
+        backgroundColor: COLORS.primary, 
+        borderRadius: 10, 
+        paddingVertical: 9, 
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3,
+        elevation: 3,
     },
-    removeBtnText: { color: '#FFBFAA', fontWeight: '700', fontSize: 13 },
+    viewProfileBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 13 },
 });

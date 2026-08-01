@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
+import { Animated, Image, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import logoImage from '../assets/Fla.png';
 
 export default function MenuSide({ visible, onClose, onNavigate, onLogout, selectedMyPet }) {
     const drawerAnim = useRef(new Animated.Value(-280)).current;
@@ -38,10 +39,12 @@ export default function MenuSide({ visible, onClose, onNavigate, onLogout, selec
                         {/* ── HEADER SECTION ── */}
                         <View style={styles.headerContainer}>
                             <View style={styles.logoRow}>
-                                <Text style={styles.logoIcon}>🐾</Text>
-                                <Text style={styles.title}>PETHUB</Text>
+                                <Image source={logoImage} style={styles.logoImage} resizeMode="contain" />
+                                <View>
+                                    <Text style={styles.title}>PETHUB</Text>
+                                    <Text style={styles.subtitle}>Premium Pet Care Platform</Text>
+                                </View>
                             </View>
-                            <Text style={styles.subtitle}>Premium Pet Care Platform</Text>
                             <View style={styles.divider} />
                         </View>
 
@@ -100,12 +103,17 @@ function DrawerButton({ icon, label, onPress }) {
 const styles = StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.4)', flexDirection: 'row' },
     panel: { position: 'absolute', top: 0, left: 0, bottom: 0, width: 280, backgroundColor: '#FFFFFF', paddingTop: 65, paddingHorizontal: 20, borderTopRightRadius: 25, borderBottomRightRadius: 25, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 4, height: 0 }, elevation: 10 },
+
     headerContainer: { marginBottom: 15 },
-    logoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    logoIcon: { fontSize: 24 },
-    title: { fontSize: 24, fontWeight: '900', color: '#000000', letterSpacing: 0.5 },
-    subtitle: { marginTop: 4, color: '#666666', fontSize: 12, fontWeight: '500' },
-    divider: { height: 1, backgroundColor: '#EAEAEA', marginTop: 15 },
+    logoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+
+    logoImage: { width: 76, height: 76 },
+
+    title: { fontSize: 21, fontWeight: '900', color: '#111827', letterSpacing: 0.5, lineHeight: 24 },
+    subtitle: { marginTop: 2, color: '#8A8A8A', fontSize: 11.5, fontWeight: '500' },
+
+    divider: { height: 1, backgroundColor: '#EAEAEA', marginTop: 18 },
+
     menuScrollView: { flex: 1 },
     scrollContent: { paddingVertical: 10 },
     item: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 6, marginBottom: 12, borderRadius: 12 },
