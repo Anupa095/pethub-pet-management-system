@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, Image, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { 
+    StyleSheet, Text, View, Image, ScrollView, 
+    TouchableOpacity, ActivityIndicator, Alert, TextInput, FlatList 
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { getPetImageUrl } from '../services/api';
-import { getAllPets } from '../services/petApi';
+import * as ImagePicker from 'expo-image-picker';
+import { getPetImageUrl, API_ROOT } from '../services/api';
+import { getAllPets, uploadPetImage, createPetPost, getPetPosts, togglePostLike } from '../services/petApi';
+import { useAuth } from '../context/AuthContext';
 
 const COLORS = {
     bg: '#f6f1e8',
@@ -18,8 +23,6 @@ const COLORS = {
     line: '#EAE2D8',
 };
 
-// 🔥 Vaccination field eka backend eke wenas namakin ewath puluwan
-// (vaccinated, isVaccinated, vaccinationStatus) - okkoma try karanawa
 function resolveVaccinationStatus(pet) {
     const raw = pet?.vaccinated ?? pet?.isVaccinated ?? pet?.vaccinationStatus;
 
@@ -33,9 +36,6 @@ function resolveVaccinationStatus(pet) {
 }
 
 export default function PetProfile({ route, navigation, selectedMyPet: propsPet }) {
-    // ලැබෙන දත්ත context එකෙන් හෝ navigation params හරහා ලබා ගැනීම
-    // 🔥 navigation.navigate කරද්දී param name එක වෙනස් නම් (pet, item, selectedPet, etc.)
-    // okkoma try karanawa, nathnam route.params eka witharama pet object ekak nam eth use karanawa
     const params = route?.params;
     const initialPet =
         propsPet ||
@@ -49,9 +49,14 @@ export default function PetProfile({ route, navigation, selectedMyPet: propsPet 
     const [loading, setLoading] = useState(!initialPet);
     const [imageFailed, setImageFailed] = useState(false);
 
+    // 📸 Social Media Feed State Variables
+    const [posts, setPosts] = useState([]);
+    const [caption, setCaption] = useState('');
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [uploadingProfileImage, setUploadingProfileImage] = useState(false);
+    const [profileImageVersion, setProfileImageVersion] = useState(0);
+    const { user } = useAuth();
     useEffect(() => {
-        // pet object eka already ena widiyata thiyenawanam refetch karanne na,
-        // id ekak witharak thiyenawanam (e.g. deep link) full details load karanawa
         if (initialPet?.name || !initialPet?.id) {
             setPet(initialPet || null);
             setLoading(false);
@@ -65,18 +70,152 @@ export default function PetProfile({ route, navigation, selectedMyPet: propsPet 
             if (!active) return;
             const found = Array.isArray(all) ? all.find((p) => p?.id === initialPet.id) : null;
             setPet(found || initialPet);
+                // load posts for the pet we found
+                const pid = (found || initialPet)?.id;
+                if (pid) {
+                    const fetched = await getPetPosts(pid, user?.email);
+                    const mapped = Array.isArray(fetched) ? fetched.map((x) => ({
+                        ...x,
+                        imageUrl: x.imageUrl && x.imageUrl.startsWith('/') ? `${API_ROOT}${x.imageUrl}` : x.imageUrl,
+                        liked: x.liked ?? x.isLiked ?? false,
+                        likes: x.likes ?? x.likeCount ?? 0,
+                    })) : [];
+                    setPosts(mapped);
+                }
             setLoading(false);
         })();
 
         return () => { active = false; };
     }, [initialPet?.id]);
 
+    // Load posts whenever `pet` is available/changed
     useEffect(() => {
-        if (__DEV__) {
-            console.log('PetProfile opened. route.params:', params);
-            console.log('PetProfile state pet:', pet);
+        let active = true;
+        (async () => {
+            if (!pet?.id) return;
+            const fetched = await getPetPosts(pet.id, user?.email);
+            if (!active) return;
+            const mapped = Array.isArray(fetched) ? fetched.map((x) => ({
+                ...x,
+                imageUrl: x.imageUrl && x.imageUrl.startsWith('/') ? `${API_ROOT}${x.imageUrl}` : x.imageUrl,
+                liked: x.liked ?? x.isLiked ?? false,
+                likes: x.likes ?? x.likeCount ?? 0,
+            })) : [];
+            setPosts(mapped);
+        })();
+
+        return () => { active = false; };
+    }, [pet?.id]);
+
+    // 🖼️ Gallery එකෙන් Image එකක් Select කරගැනීමට
+    const pickImage = async () => {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permissionResult.granted) {
+            Alert.alert('Permission Required', 'Gallery access is needed to upload photos!');
+            return;
         }
-    }, [params, pet]);
+
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.8,
+        });
+
+        if (!result.canceled) {
+            setSelectedImage(result.assets[0].uri);
+        }
+    };
+
+    // 📸 Profile image picker + upload
+    const pickProfileImage = async () => {
+        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permissionResult.granted) {
+            Alert.alert('Permission Required', 'Gallery access is needed to upload photos!');
+            return;
+        }
+
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+        });
+
+        if (result.canceled) return;
+
+        const uri = result.assets[0].uri;
+
+        if (!pet?.id) {
+            Alert.alert('Missing Pet', 'Pet must be created before uploading a profile photo.');
+            return;
+        }
+
+        try {
+            setUploadingProfileImage(true);
+            const updated = await uploadPetImage(pet.id, uri);
+            if (updated) {
+                setPet(updated);
+                setImageFailed(false);
+                setProfileImageVersion((v) => v + 1);
+                Alert.alert('Success', 'Profile image updated');
+            }
+        } catch (err) {
+            console.log('Profile upload failed', err.response?.data || err.message);
+            Alert.alert('Upload Failed', err.response?.data || 'Could not upload image');
+        } finally {
+            setUploadingProfileImage(false);
+        }
+    };
+
+    // 🚀 Post එක Feed එකට එකතු කිරීම
+    const handleAddPost = async () => {
+        if (!selectedImage) {
+            Alert.alert('No Image', 'Please select an image first!');
+            return;
+        }
+
+        if (!pet?.id) {
+            Alert.alert('Missing Pet', 'Create the pet before posting.');
+            return;
+        }
+
+        try {
+            const saved = await createPetPost(pet.id, selectedImage, caption.trim());
+            // map image url to full URL
+            const mapped = saved.imageUrl && saved.imageUrl.startsWith('/') ? { ...saved, imageUrl: `${API_ROOT}${saved.imageUrl}` } : saved;
+            const normalized = { ...mapped, liked: false, likes: mapped.likes ?? 0 };
+            setPosts((prev) => [normalized, ...prev]);
+            setSelectedImage(null);
+            setCaption('');
+        } catch (err) {
+            console.log('Create post failed', err.response?.data || err.message);
+            Alert.alert('Post Failed', err.response?.data || 'Could not create post');
+        }
+    };
+
+    // ❤️ Like Button එක Handle කිරීමට
+    const handleToggleLike = async (postId) => {
+        if (!user?.email) {
+            Alert.alert('Login required', 'Please login to like posts');
+            return;
+        }
+
+        try {
+            const resp = await togglePostLike(postId, user.email);
+            setPosts((prev) => prev.map((p) => {
+                if (p.id === postId) {
+                    return { ...p, liked: resp.liked, likes: resp.likes };
+                }
+                return p;
+            }));
+        } catch (err) {
+            console.log('Like toggle failed', err.response?.data || err.message);
+            Alert.alert('Error', 'Could not update like');
+        }
+    };
 
     if (loading) {
         return (
@@ -87,23 +226,15 @@ export default function PetProfile({ route, navigation, selectedMyPet: propsPet 
     }
 
     if (!pet) {
-        if (__DEV__) {
-            console.log('PetProfile: no pet found. route.params was:', params);
-        }
         return (
             <View style={styles.centered}>
                 <Text style={styles.emptyText}>No Pet Profile Selected 🐾</Text>
-                {__DEV__ && (
-                    <Text style={styles.debugText}>
-                        params: {params ? JSON.stringify(params) : 'undefined'}
-                    </Text>
-                )}
             </View>
         );
     }
 
     const vaccination = resolveVaccinationStatus(pet);
-    const imageUrl = pet.id ? getPetImageUrl(pet.id) : null;
+    const imageUrl = pet.id ? `${getPetImageUrl(pet.id)}?v=${profileImageVersion}` : null;
 
     return (
         <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -130,7 +261,19 @@ export default function PetProfile({ route, navigation, selectedMyPet: propsPet 
                     </View>
                 )}
 
-                {/* Vaccination badge - photo eke pahalin corner ekaka */}
+                {/* Camera button to change profile image */}
+                <TouchableOpacity
+                    style={styles.changePhotoBtn}
+                    onPress={pickProfileImage}
+                    disabled={uploadingProfileImage}
+                >
+                    {uploadingProfileImage ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                        <MaterialIcons name="camera-alt" size={18} color="#fff" />
+                    )}
+                </TouchableOpacity>
+
                 <View
                     style={[
                         styles.vaccineBadge,
@@ -168,11 +311,97 @@ export default function PetProfile({ route, navigation, selectedMyPet: propsPet 
                     />
                 </View>
             </View>
+
+            {/* 📸 ADD NEW POST SECTION */}
+            <View style={styles.createPostCard}>
+                <Text style={styles.sectionTitle}>Share a Moment 🐾</Text>
+
+                {selectedImage ? (
+                    <View style={styles.previewContainer}>
+                        <Image source={{ uri: selectedImage }} style={styles.previewImage} />
+                        <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
+                            <MaterialIcons name="close" size={18} color="#fff" />
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <TouchableOpacity style={styles.pickImageBtn} onPress={pickImage}>
+                        <MaterialIcons name="add-a-photo" size={28} color={COLORS.primary} />
+                        <Text style={styles.pickImageText}>Select Photo from Gallery</Text>
+                    </TouchableOpacity>
+                )}
+
+                <TextInput
+                    style={styles.captionInput}
+                    placeholder="Write a caption..."
+                    placeholderTextColor={COLORS.mid}
+                    value={caption}
+                    onChangeText={setCaption}
+                    multiline
+                />
+
+                <TouchableOpacity style={styles.postBtn} onPress={handleAddPost}>
+                    <MaterialIcons name="send" size={18} color="#fff" />
+                    <Text style={styles.postBtnText}>Post Moment</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* 📰 FEED / POSTS LIST SECTION */}
+            <View style={styles.feedSection}>
+                <Text style={styles.sectionTitle}>Photos & Posts ({posts.length})</Text>
+
+                {posts.length === 0 ? (
+                    <View style={styles.emptyFeed}>
+                        <MaterialIcons name="photo-library" size={48} color={COLORS.mid} />
+                        <Text style={styles.emptyFeedText}>No posts yet. Share your first moment!</Text>
+                    </View>
+                ) : (
+                    posts.map((item) => (
+                        <View key={item.id} style={styles.postCard}>
+                            {/* Post Header */}
+                            <View style={styles.postHeader}>
+                                {imageUrl && !imageFailed ? (
+                                    <Image source={{ uri: imageUrl }} style={styles.postAvatar} />
+                                ) : (
+                                    <View style={[styles.postAvatar, { backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' }]}>
+                                        <Text style={{ fontSize: 16 }}>🐾</Text>
+                                    </View>
+                                )}
+                                <View style={styles.postHeaderInfo}>
+                                    <Text style={styles.postAuthor}>{pet.name}</Text>
+                                    <Text style={styles.postTime}>{item.createdAt}</Text>
+                                </View>
+                            </View>
+
+                            {/* Post Image */}
+                            <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
+
+                            {/* Actions (Like Button) */}
+                            <View style={styles.postActions}>
+                                <TouchableOpacity style={styles.likeBtn} onPress={() => handleToggleLike(item.id)}>
+                                    <MaterialIcons
+                                        name={item.liked ? 'favorite' : 'favorite-border'}
+                                        size={24}
+                                        color={item.liked ? COLORS.danger : COLORS.dark}
+                                    />
+                                    <Text style={styles.likeCount}>{item.likes}</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Caption */}
+                            {item.caption ? (
+                                <View style={styles.captionContainer}>
+                                    <Text style={styles.captionAuthor}>{pet.name}</Text>
+                                    <Text style={styles.captionText}>{item.caption}</Text>
+                                </View>
+                            ) : null}
+                        </View>
+                    ))
+                )}
+            </View>
         </ScrollView>
     );
 }
 
-/* Custom Component for Info Items */
 function InfoTile({ icon, label, value, valueColor }) {
     return (
         <View style={styles.tile}>
@@ -218,7 +447,7 @@ const styles = StyleSheet.create({
 
     infoCard: {
         backgroundColor: COLORS.card, marginHorizontal: 20, borderRadius: 20, padding: 20,
-        elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, marginBottom: 30,
+        elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, marginBottom: 20,
     },
     petName: { fontSize: 26, fontWeight: '800', color: COLORS.dark, textAlign: 'center' },
     petBreed: { fontSize: 14, fontWeight: '500', color: COLORS.primary, textAlign: 'center', marginTop: 4 },
@@ -232,5 +461,58 @@ const styles = StyleSheet.create({
     tileValue: { fontSize: 14, color: COLORS.dark, fontWeight: '600', marginTop: 1 },
 
     emptyText: { fontSize: 16, color: COLORS.mid, fontWeight: '500' },
-    debugText: { fontSize: 11, color: COLORS.mid, marginTop: 10, paddingHorizontal: 20, textAlign: 'center' },
+
+    /* 📸 Add Post Box Styles */
+    createPostCard: {
+        backgroundColor: COLORS.card, marginHorizontal: 20, borderRadius: 20, padding: 16,
+        elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, marginBottom: 20,
+    },
+    sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.dark, marginBottom: 12 },
+    pickImageBtn: {
+        height: 120, borderWidth: 1.5, borderColor: COLORS.primary, borderStyle: 'dashed',
+        borderRadius: 14, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.primaryLight,
+        marginBottom: 12, gap: 6,
+    },
+    pickImageText: { color: COLORS.primary, fontWeight: '600', fontSize: 13 },
+    previewContainer: { position: 'relative', marginBottom: 12 },
+    previewImage: { width: '100%', height: 200, borderRadius: 14 },
+    removeImageBtn: {
+        position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: 6, borderRadius: 20,
+    },
+    captionInput: {
+        backgroundColor: COLORS.bg, borderRadius: 12, padding: 12, fontSize: 14,
+        color: COLORS.dark, minHeight: 60, textAlignVertical: 'top', marginBottom: 12,
+    },
+    postBtn: {
+        backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 12,
+        flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8,
+    },
+    postBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+    /* 📰 Feed / Posts List Styles */
+    feedSection: { marginHorizontal: 20, marginBottom: 40 },
+    emptyFeed: { alignItems: 'center', paddingVertical: 30, gap: 10 },
+    emptyFeedText: { color: COLORS.mid, fontSize: 14 },
+    postCard: {
+        backgroundColor: COLORS.card, borderRadius: 20, overflow: 'hidden', marginBottom: 20,
+        elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
+    },
+    changePhotoBtn: {
+        position: 'absolute', right: 8, bottom: 8,
+        width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary,
+        justifyContent: 'center', alignItems: 'center', elevation: 4,
+    },
+    postHeader: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10 },
+    postAvatar: { width: 38, height: 38, borderRadius: 19 },
+    postHeaderInfo: { flex: 1 },
+    postAuthor: { fontWeight: '700', fontSize: 14, color: COLORS.dark },
+    postTime: { fontSize: 11, color: COLORS.mid },
+    postImage: { width: '100%', height: 280, resizeMode: 'cover' },
+    postActions: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8 },
+    likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    likeCount: { fontWeight: '600', fontSize: 14, color: COLORS.dark },
+    captionContainer: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 14, gap: 6 },
+    captionAuthor: { fontWeight: '700', fontSize: 13, color: COLORS.dark },
+    captionText: { fontSize: 13, color: COLORS.dark, flex: 1 },
 });
