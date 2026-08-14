@@ -141,6 +141,16 @@ export default function PetDetailsScreen() {
         return isOptimalAge(selectedMyPet) && isOptimalAge(candidatePet);
     };
 
+    // ─── Sort Candidate Pets: Best Matches First ─────────────────────────────
+    const sortedCandidatePets = useMemo(() => {
+        return [...candidatePets].sort((a, b) => {
+            const aBest = isBestMatch(a) ? 1 : 0;
+            const bBest = isBestMatch(b) ? 1 : 0;
+            return bBest - aBest; // best matches (1) come before non-best (0)
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [candidatePets, selectedMyPet]);
+
     const fetchData = async () => {
         if (!user?.email) {
             setLoading(false);
@@ -250,7 +260,7 @@ export default function PetDetailsScreen() {
                         <Image source={{ uri: getPetImageUrl(item?.id) }} style={styles.matchImage} />
                         {bestMatch && (
                             <View style={styles.bestMatchBadge}>
-                                <Text style={styles.bestMatchBadgeText}>✨ Best Match</Text>
+                                <Text style={styles.bestMatchBadgeText}>Best Match</Text>
                             </View>
                         )}
                     </View>
@@ -259,14 +269,14 @@ export default function PetDetailsScreen() {
                         <View style={styles.matchMetaRow}>
                             {item?.gender && (
                                 <View style={styles.metaPill}>
-                                    <Text style={styles.metaPillText}>
+                                    <Text style={styles.metaPillText} numberOfLines={1} ellipsizeMode="tail">
                                         {item.gender.toLowerCase() === 'male' ? '♂' : '♀'} {item.gender}
                                     </Text>
                                 </View>
                             )}
                             {item?.breed && (
                                 <View style={[styles.metaPill, styles.metaPillBreed]}>
-                                    <Text style={styles.metaPillText} numberOfLines={1}>{item.breed}</Text>
+                                    <Text style={styles.metaPillText} numberOfLines={1} ellipsizeMode="tail">{item.breed}</Text>
                                 </View>
                             )}
                         </View>
@@ -281,7 +291,7 @@ export default function PetDetailsScreen() {
                         disabled={sendingConnectPetId === item?.id}
                     >
                         <Text style={styles.connectBtnText}>
-                            {sendingConnectPetId === item?.id ? '...' : '🐾 Connect'}
+                            {sendingConnectPetId === item?.id ? '...' : ' Send Request'}
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -418,7 +428,7 @@ export default function PetDetailsScreen() {
                             style={styles.heroPetAvatar}
                         />
                     ) : (
-                        <Text style={{ fontSize: 52 }}>🐾</Text>
+                        <Text style={{ fontSize: 52 }}></Text>
                     )}
                 </View>
             </View>
@@ -455,15 +465,15 @@ export default function PetDetailsScreen() {
             )}
 
             {/* Breeding Match */}
-            <SectionHeader title="Breeding Match" count={candidatePets.length} />
-            {candidatePets.length === 0 ? (
+            <SectionHeader title="Breeding Match" count={sortedCandidatePets.length} />
+            {sortedCandidatePets.length === 0 ? (
                 <View style={styles.emptyBox}>
                     <Text style={styles.emptyIcon}>💝</Text>
                     <Text style={styles.emptyText}>No more candidates right now.</Text>
                 </View>
             ) : (
                 <FlatList
-                    data={candidatePets}
+                    data={sortedCandidatePets}
                     horizontal
                     renderItem={renderMatch}
                     keyExtractor={(item, i) => item?.id?.toString() || i.toString()}
@@ -683,6 +693,7 @@ const styles = StyleSheet.create({
     },
     matchCard: {
         width: 150,
+        height: 246,
         backgroundColor: COLORS.card,
         borderRadius: 16, 
         overflow: 'hidden',
@@ -694,13 +705,13 @@ const styles = StyleSheet.create({
         backgroundColor: COLORS.bestMatch, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3,
     },
     bestMatchBadgeText: { color: COLORS.white, fontSize: 10, fontWeight: '800' },
-    matchInfoOverlay: { paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
-    matchName: { fontWeight: '700', fontSize: 14, color: COLORS.dark },
-    matchMetaRow: { flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap' },
-    metaPill: { backgroundColor: COLORS.primaryLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-    metaPillBreed: { backgroundColor: COLORS.accentLight },
-    metaPillText: { fontSize: 10, color: COLORS.dark, fontWeight: '600' },
-    matchOwner: { fontSize: 11, color: COLORS.mid, marginTop: 5 },
+    matchInfoOverlay: { height: 83, paddingHorizontal: 8, paddingTop: 8, overflow: 'hidden' },
+    matchName: { fontWeight: '700', fontSize: 14, lineHeight: 18, color: COLORS.dark, height: 20 },
+    matchMetaRow: { flexDirection: 'row', gap: 4, marginTop: 4, height: 22, alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' },
+    metaPill: { backgroundColor: COLORS.primaryLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
+    metaPillBreed: { backgroundColor: COLORS.accentLight, flexShrink: 1, maxWidth: 85 },
+    metaPillText: { fontSize: 10, lineHeight: 13, color: COLORS.dark, fontWeight: '600' },
+    matchOwner: { fontSize: 11, lineHeight: 14, color: COLORS.mid, marginTop: 5, height: 16 },
     connectBtn: { margin: 8, backgroundColor: COLORS.primary, borderRadius: 10, paddingVertical: 8, alignItems: 'center' },
     connectBtnBest: { backgroundColor: COLORS.bestMatch },
     connectBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 13 },
