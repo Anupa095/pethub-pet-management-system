@@ -8,8 +8,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { getAllPets, getMyPets } from '../services/petApi';
-import { getPetImageUrl } from '../services/api';
+import { getAllPets, getMyPets, getPetPosts, togglePostLike } from '../services/petApi';
+import { getPetImageUrl, API_ROOT } from '../services/api';
 import {
     sendMatchRequest,
     getPendingMatchRequests,
@@ -32,6 +32,9 @@ export default function PetDetailsScreen() {
     const [deletingMatchId, setDeletingMatchId] = useState(null);
     const [selectedMyPetId, setSelectedMyPetId] = useState(null);
     const [drawerVisible, setDrawerVisible] = useState(false);
+
+    // 📸 Confirmed pets ට අදාළ Posts (photos) map කරගැනීමට
+    const [petPostsMap, setPetPostsMap] = useState({});
 
     const { user, handleLogout } = useAuth();
     const navigation = useNavigation();
@@ -101,6 +104,17 @@ export default function PetDetailsScreen() {
         () => myPets.find((pet) => pet?.id === selectedMyPetId) ?? null,
         [myPets, selectedMyPetId]
     );
+
+    // ─── Posts තියෙන Confirmed Matches විතරක් Filter කිරීම (posts නැති ඒවා Hide) ──
+    const confirmedMatchesWithPosts = useMemo(() => {
+        return confirmedMatches.filter((match) => {
+            const pairedPetId = match?.requesterPetId === selectedMyPetId
+                ? match?.targetPetId
+                : match?.requesterPetId;
+            const posts = petPostsMap[pairedPetId];
+            return Array.isArray(posts) && posts.length > 0;
+        });
+    }, [confirmedMatches, selectedMyPetId, petPostsMap]);
 
     // ─── Incoming Pending Requests filter (තමන්ට ලැබුණු ඒවා විතරයි) ──────────
     const incomingPendingRequests = useMemo(() => {
@@ -203,6 +217,72 @@ export default function PetDetailsScreen() {
     useEffect(() => {
         fetchData();
     }, [user?.email, viewedPet?.id]);
+
+    // ─── Confirmed Matches වල Pets ලාගේ Posts (Photos) Load කිරීම ───────────
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            if (!confirmedMatches.length) {
+                setPetPostsMap({});
+                return;
+            }
+
+            const pairedIds = confirmedMatches
+                .map((item) =>
+                    item?.requesterPetId === selectedMyPetId
+                        ? item?.targetPetId
+                        : item?.requesterPetId
+                )
+                .filter(Boolean);
+
+            const uniqueIds = [...new Set(pairedIds)];
+
+            const results = await Promise.all(
+                uniqueIds.map(async (id) => {
+                    const fetched = await getPetPosts(id, user?.email);
+                    const mapped = Array.isArray(fetched)
+                        ? fetched.map((x) => ({
+                              ...x,
+                              imageUrl:
+                                  x.imageUrl && x.imageUrl.startsWith('/')
+                                      ? `${API_ROOT}${x.imageUrl}`
+                                      : x.imageUrl,
+                              liked: x.liked ?? x.isLiked ?? false,
+                              likes: x.likes ?? x.likeCount ?? 0,
+                          }))
+                        : [];
+                    return [id, mapped];
+                })
+            );
+
+            if (!active) return;
+            setPetPostsMap(Object.fromEntries(results));
+        })();
+
+        return () => { active = false; };
+    }, [confirmedMatches, selectedMyPetId, user?.email]);
+
+    // ❤️ Like Button එක Handle කිරීමට (Confirmed Match Posts)
+    const handleToggleLike = async (pairedPetId, postId) => {
+        if (!user?.email) {
+            Alert.alert('Login required', 'Please login to like posts');
+            return;
+        }
+
+        try {
+            const resp = await togglePostLike(postId, user.email);
+            setPetPostsMap((prev) => {
+                const current = prev[pairedPetId] || [];
+                const updated = current.map((p) =>
+                    p.id === postId ? { ...p, liked: resp.liked, likes: resp.likes } : p
+                );
+                return { ...prev, [pairedPetId]: updated };
+            });
+        } catch (err) {
+            console.log('Like toggle failed', err.response?.data || err.message);
+            Alert.alert('Error', 'Could not update like');
+        }
+    };
 
     // ─── CONNECT HANDLER ───
     const handleConnect = async (targetPet) => {
@@ -335,7 +415,7 @@ export default function PetDetailsScreen() {
         </View>
     );
 
-    // ─── RENDER: Confirmed Match Card (View Profile එක සහිතයි) ─────────────────
+    // ─── RENDER: Confirmed Match Card (Photos & Posts සමඟින්) ────────────────
     const renderConfirmed = ({ item }) => {
         // 1. අනික් Pet ගේ ID එක සොයාගැනීම
         const pairedPetId = item?.requesterPetId === selectedMyPetId
@@ -359,26 +439,75 @@ export default function PetDetailsScreen() {
             age: item?.requesterPetId === selectedMyPetId ? item?.targetPetAge : item?.requesterPetAge,
         };
 
+        const posts = petPostsMap[pairedPetId] || [];
+
+        // Posts නැති pets card එකම render කරන්නෙ නෑ
+        if (posts.length === 0) return null;
+
+        const goToProfile = () => navigation.navigate('PetProfile', { pet: pairedPet, isOwnPet: false });
+        const pairedImageUrl = getPetImageUrl(pairedPet?.id);
+
         return (
-            <View style={styles.confirmedCard}>
-                <Image source={{ uri: getPetImageUrl(pairedPet?.id) }} style={styles.confirmedImage} />
-                <View style={styles.confirmedOverlay}>
-                    <View style={styles.confirmedBadge}>
+            <View style={styles.confirmedGroup}>
+                {/* Header: Avatar + Name (clickable) + Owner + Connected badge */}
+                <View style={styles.confirmedHeader}>
+                    <TouchableOpacity onPress={goToProfile} activeOpacity={0.8}>
+                        <Image source={{ uri: pairedImageUrl }} style={styles.confirmedAvatar} />
+                    </TouchableOpacity>
+
+                    <View style={{ flex: 1 }}>
+                        <TouchableOpacity onPress={goToProfile} activeOpacity={0.7}>
+                            <Text style={styles.confirmedPetNameNew} numberOfLines={1}>{pairedPet?.name}</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.confirmedOwnerNew} numberOfLines={1}>
+                            👤 {pairedPet?.user?.name || pairedPet?.user?.email || pairedPet?.owner}
+                        </Text>
+                    </View>
+
+                    <View style={styles.confirmedBadgeNew}>
                         <Text style={styles.confirmedBadgeText}>✓ Connected</Text>
                     </View>
-                    <Text style={styles.confirmedPetName}>{pairedPet?.name}</Text>
-                    <Text style={styles.confirmedOwner}>
-                        👤 {pairedPet?.user?.name || pairedPet?.user?.email || pairedPet?.owner}
-                    </Text>
-                    
-                    <TouchableOpacity
-                        style={styles.viewProfileBtn}
-                        onPress={() => navigation.navigate('PetProfile', { pet: pairedPet, isOwnPet: false })}
-                        activeOpacity={0.85}
-                    >
-                        <Text style={styles.viewProfileBtnText}>👤 View Profile</Text>
-                    </TouchableOpacity>
                 </View>
+
+                {/* Photos & Posts — PetProfile එකේ තිබුණු ම size/style එකෙන්ම */}
+                {posts.map((post) => (
+                    <View key={post.id} style={styles.postCard}>
+                        {/* Post Header */}
+                        <TouchableOpacity style={styles.postHeader} onPress={goToProfile} activeOpacity={0.85}>
+                            <Image source={{ uri: pairedImageUrl }} style={styles.postAvatar} />
+                            <View style={styles.postHeaderInfo}>
+                                <Text style={styles.postAuthor}>{pairedPet?.name}</Text>
+                                <Text style={styles.postTime}>{post.createdAt}</Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        {/* Post Image */}
+                        <Image source={{ uri: post.imageUrl }} style={styles.postImage} resizeMode="cover" />
+
+                        {/* Actions (Like Button) */}
+                        <View style={styles.postActions}>
+                            <TouchableOpacity
+                                style={styles.likeBtn}
+                                onPress={() => handleToggleLike(pairedPetId, post.id)}
+                            >
+                                <MaterialIcons
+                                    name={post.liked ? 'favorite' : 'favorite-border'}
+                                    size={24}
+                                    color={post.liked ? COLORS.danger : COLORS.dark}
+                                />
+                                <Text style={styles.likeCount}>{post.likes}</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Caption */}
+                        {post.caption ? (
+                            <View style={styles.captionContainer}>
+                                <Text style={styles.captionAuthor}>{pairedPet?.name}</Text>
+                                <Text style={styles.captionText}>{post.caption}</Text>
+                            </View>
+                        ) : null}
+                    </View>
+                ))}
             </View>
         );
     };
@@ -497,11 +626,11 @@ export default function PetDetailsScreen() {
             )}
 
             {/* Confirmed */}
-            <SectionHeader title="Confirmed Matches" count={confirmedMatches.length} />
-            {confirmedMatches.length === 0 && (
+            <SectionHeader title="Confirmed Matches" count={confirmedMatchesWithPosts.length} />
+            {confirmedMatchesWithPosts.length === 0 && (
                 <View style={styles.emptyBox}>
                     <Text style={styles.emptyIcon}>🤝</Text>
-                    <Text style={styles.emptyText}>No confirmed matches yet.</Text>
+                    <Text style={styles.emptyText}>No posts from your matches yet.</Text>
                 </View>
             )}
         </View>
@@ -538,7 +667,7 @@ export default function PetDetailsScreen() {
             />
 
             <FlatList
-                data={confirmedMatches}
+                data={confirmedMatchesWithPosts}
                 renderItem={renderConfirmed}
                 keyExtractor={(item, i) => item?.id?.toString() || i.toString()}
                 ListHeaderComponent={ListHeader}
@@ -734,24 +863,37 @@ const styles = StyleSheet.create({
     deleteBtn: { flex: 1, backgroundColor: COLORS.dangerLight, borderRadius: 10, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary },
     deleteBtnText: { color: COLORS.danger, fontWeight: '700', fontSize: 13 },
 
-    confirmedCard: { marginHorizontal: 14, marginBottom: 14, borderRadius: 22, overflow: 'hidden', height: 260 },
-    confirmedImage: { width: '100%', height: '100%', position: 'absolute' },
-    confirmedOverlay: { flex: 1, justifyContent: 'flex-end', padding: 18, backgroundColor: 'rgba(0,0,0,0.35)' },
-    confirmedBadge: { alignSelf: 'flex-start', backgroundColor: COLORS.accent, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8 },
-    confirmedBadgeText: { color: COLORS.white, fontSize: 11, fontWeight: '700' },
-    confirmedPetName: { color: COLORS.white, fontSize: 20, fontWeight: '800' },
-    confirmedOwner: { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 3, marginBottom: 12 },
-
-    viewProfileBtn: { 
-        backgroundColor: COLORS.primary, 
-        borderRadius: 10, 
-        paddingVertical: 9, 
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
-        elevation: 3,
+    // ─── Confirmed Match Group (Header + Photos & Posts) ───────────────────
+    confirmedGroup: {
+        marginHorizontal: 20, marginBottom: 20,
     },
-    viewProfileBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 13 },
+    confirmedHeader: {
+        flexDirection: 'row', alignItems: 'center', gap: 10,
+        backgroundColor: COLORS.card, borderRadius: 20, padding: 14, marginBottom: 12,
+        borderWidth: 1, borderColor: '#EDE8E3',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    },
+    confirmedAvatar: { width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: COLORS.accentLight },
+    confirmedPetNameNew: { fontSize: 16, fontWeight: '800', color: COLORS.dark },
+    confirmedOwnerNew: { fontSize: 12, color: COLORS.mid, marginTop: 2 },
+    confirmedBadgeNew: { backgroundColor: COLORS.accent, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 4 },
+    confirmedBadgeText: { color: COLORS.white, fontSize: 10, fontWeight: '700' },
+
+    // ─── Post Card — PetProfile.js එකේ තිබුණු ම size/style එකෙන්ම ──────────
+    postCard: {
+        backgroundColor: COLORS.card, borderRadius: 20, overflow: 'hidden', marginBottom: 20,
+        elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
+    },
+    postHeader: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10 },
+    postAvatar: { width: 38, height: 38, borderRadius: 19 },
+    postHeaderInfo: { flex: 1 },
+    postAuthor: { fontWeight: '700', fontSize: 14, color: COLORS.dark },
+    postTime: { fontSize: 11, color: COLORS.mid },
+    postImage: { width: '100%', height: 280 },
+    postActions: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8 },
+    likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    likeCount: { fontWeight: '600', fontSize: 14, color: COLORS.dark },
+    captionContainer: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 14, gap: 6 },
+    captionAuthor: { fontWeight: '700', fontSize: 13, color: COLORS.dark },
+    captionText: { fontSize: 13, color: COLORS.dark, flex: 1 },
 });
